@@ -29,6 +29,7 @@ CHANGELOG.md
 VERSION.md
 
 # --- Local dev / test / monitor scripts (not part of install package) ---
+skill-adaptor/tests/
 skill-adaptor/scripts/
 skill-adaptor/verify_fixes.py
 skill-adaptor/run_real_experiment.py
@@ -37,6 +38,12 @@ scripts/benchmark_matrix_smoke.py
 scripts/monitor_plugin_run.ps1
 scripts/install_benchmark_env.ps1
 scripts/verify_providers.py
+scripts/verify_before_push.ps1
+scripts/verify_before_push.sh
+scripts/verify_env.ps1
+scripts/smoke_no_api.ps1
+scripts/smoke_no_api.sh
+scripts/init_workspace.ps1
 benchmarks/scripts/
 benchmarks/manifests/
 

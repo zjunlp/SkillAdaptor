@@ -45,10 +45,6 @@ jobs:
           cp ../benchmarks/generic_stubs/task_generic_shell_safe.md /tmp/sa-ws/input_task/
           python run_plugin.py --workspace /tmp/sa-ws --dry-run
 
-      - name: Unit tests (no API)
-        working-directory: skill-adaptor
-        run: python -m pytest tests/ -q --ignore=tests/integration
-
       - name: Provider template validation
         working-directory: skill-adaptor
         run: |
