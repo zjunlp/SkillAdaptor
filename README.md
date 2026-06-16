@@ -1,27 +1,33 @@
 <div align="center">
 
-# SkillAdaptor
+# SkillAdaptor: Self-Adapting Skills for LLM Agents from Trajectories
 
-**Self-Adapting Skills for LLM Agents from Trajectories**
-
-*Training-free · Plugin-first · OpenClaw & Claude Code*
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](skill-adaptor/requirements.txt)
-
-📄 [**Paper (PDF)**](paper/skilladaptor.pdf)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Paper](https://img.shields.io/badge/📄_Paper-EMNLP_2026-lightgrey)](paper/skilladaptor.pdf)
 
 <img src="paper/overview.png" alt="SkillAdaptor overview" width="900"/>
+
+[Installation](#installation) ·
+[Quick Start](#quick-start-bundled-smoke--wiring-check) ·
+[Generic Tasks](#generic-tasks-any-task-set--core-plugin-path) ·
+[OpenClaw](#openclaw-typescript-plugin) ·
+[Citation](#citation)
+
+**⭐ If you like our project, please give us a star on GitHub for the latest updates!**
 
 </div>
 
 ---
 
-## Overview
+**SkillAdaptor** is a **training-free** harness plugin for [OpenClaw](https://github.com/openclaw/openclaw) and **Claude Code**. It evolves agent **`SKILL.md`** files from **real failure trajectories**, validates each candidate with **A/B testing** on a held-out validation set **Q′**, and exports adopted skills into your workspace.
 
-**SkillAdaptor** evolves agent **`SKILL.md`** files from **real failure trajectories**, validates each candidate with **A/B testing** on a held-out validation set **Q′**, and exports adopted skills into your workspace. It is a **harness plugin** for [OpenClaw](https://github.com/openclaw/openclaw) and **Claude Code**: you define a **task set**, the agent runs on those tasks, failures drive skill generation, and the **Validator** decides adopt vs reject.
+- **Plugin-first** — `run_plugin.py init` + `run_plugin.py`; skills land in `skills/<id>/SKILL.md`
+- **Any task set** — not limited to bundled benchmarks; use `init --mode folders` and drop briefs under `input_task/`
+- **Retrieval-gated inject** — category + embedding matching; no global skill pollution on unrelated tasks
+- **Triple adopt gates** — source-task Δ>0, category HOLD_BASELINE, full Q′ HOLD_BASELINE
 
-> **Not limited to three benchmarks.** Bundled manifests (PinchBench / WebShop / Claw-Eval) are optional. For **your own tasks**, use **`init --mode folders`**, drop task briefs under `input_task/`, and evolve on the **same task group** with retrieval-gated injection and triple validation gates.
+> Bundled manifests (PinchBench / WebShop / Claw-Eval) are **optional**. For your own tasks, see [Generic tasks](#generic-tasks-any-task-set--core-plugin-path).
 
 ---
 
@@ -204,54 +210,6 @@ Full template: [`.env.example`](.env.example).
 
 ---
 
-## Repository layout (what we ship)
-
-```
-skill-adaptor/              # Python plugin core + tests
-plugin/python/              # OpenClaw bridge
-plugin/openclaw/            # TS wiring notes
-benchmarks/manifests/       # Optional bundled task splits
-benchmarks/generic_stubs/   # Portable task brief examples
-paper/skilladaptor.pdf      # Method paper
-scripts/                    # load_secrets, init_workspace, verify_env
-README.md                   # This file
-```
-
-**Not in git:** `secrets/`, any `plugin/workspace*` run dirs, trajectories, logs (`see .gitignore`).
-
----
-
-## Validation gates (adoption)
-
-| Gate | Scope | Rule |
-|------|-------|------|
-| Source | `created_from` task | **Δ > 0** (success or avg score) |
-| Category | Same `domain_category` on Q′ | HOLD_BASELINE (no regression) |
-| Full Q′ | All validation tasks | HOLD_BASELINE; unrelated tasks frozen at baseline on revised eval |
-
----
-
-## Security before `git push`
-
-```powershell
-.\scripts\verify_before_push.ps1
-```
-
-Never commit `secrets/.env`. Rotate keys if they were ever staged.
-
----
-
-## Tests & CI
-
-```bash
-cd skill-adaptor
-python -m pytest tests/ -q --ignore=tests/integration
-```
-
-GitHub Actions: import checks + `run_plugin.py --dry-run` (no API keys).
-
----
-
 ## Citation
 
 If you use SkillAdaptor in research, please cite:
@@ -261,7 +219,7 @@ If you use SkillAdaptor in research, please cite:
   title={SkillAdaptor: Self-Adapting Skills for LLM Agents from Trajectories},
   author={...},
   year={2026},
-  note={Paper: paper/skilladaptor.pdf}
+  url={https://github.com/zjunlp/SkillAdaptor}
 }
 ```
 
@@ -269,7 +227,7 @@ If you use SkillAdaptor in research, please cite:
 
 ## License
 
-This project is released under the [MIT License](LICENSE).
+This project is released under the [MIT License](https://opensource.org/licenses/MIT).
 
 ---
 
