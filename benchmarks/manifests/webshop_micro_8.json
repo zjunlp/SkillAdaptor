@@ -1,0 +1,9 @@
+{
+  "name": "webshop_micro_8",
+  "description": "Micro WebShop evolution — 3 train goals, 5 val (adoption gate), 2 held-out test.",
+  "benchmark": "webshop",
+  "input_tasks": [1500, 1501, 1502],
+  "validation_tasks": [500, 501, 502, 503, 504],
+  "test_tasks": [0, 1],
+  "probe_mode": false
+}

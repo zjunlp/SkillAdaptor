@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.env
+.env.*
+!.env.example
+secrets/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Project specific
+SkillEvolve_output/
+SkillEvolve_artifacts/
+SkillEvolve_results/
+*.log
+*.json.bak
+
+# Zeta (if using git for backup)
+.zeta/
+
+# macOS
+.DS_Store
+*.DS_Store
+
+# Local reports only (tests under tests/ must stay tracked)
+TEST_REPORT.md

@@ -1,0 +1,104 @@
+# =============================================================================
+# SkillAdaptor — PUBLIC UPLOAD ONLY
+# Ship: README + plugin install body (skill-adaptor/, plugin bridge, manifests)
+# Never: secrets, keys, URLs, workspaces, run artifacts, local docs/tests harness
+# =============================================================================
+
+# --- SECRETS & CREDENTIALS (highest priority) ---
+secrets/
+**/secrets/
+skill-adaptor/secrets/
+.env
+.env.*
+!.env.example
+**/.env
+!**/.env.example
+*.env.local
+*.pem
+*.key
+*.p12
+*credentials*
+**/credentials.*
+**/.secrets
+**/secrets.json
+
+# --- Internal docs (public doc = root README.md only) ---
+docs/
+skill-adaptor/docs/
+CHANGELOG.md
+VERSION.md
+
+# --- Local dev / test / monitor scripts (not part of install package) ---
+skill-adaptor/scripts/
+skill-adaptor/verify_fixes.py
+skill-adaptor/run_real_experiment.py
+scripts/audit_micro10_retrieval.py
+scripts/benchmark_matrix_smoke.py
+scripts/monitor_plugin_run.ps1
+scripts/install_benchmark_env.ps1
+benchmarks/scripts/
+
+# --- ALL workspaces (created by: run_plugin.py init / init_workspace.ps1) ---
+plugin/workspace/
+plugin/workspace_bench/
+plugin/workspace_matrix/
+plugin/workspace_live_test/
+plugin/workspace_test_init/
+**/.skill-adaptor/
+**/artifacts/
+**/evolution_output*/
+**/programs/
+**/runs/
+
+# --- Trajectories & eval outputs ---
+**/*.trajectory.jsonl
+**/*_trajectory.json
+**/*_annotated.json
+**/rejection_history.json
+**/SkillEvolve_report.json
+**/skill_bank*.json
+**/active_manifest.json
+**/global_prior.txt
+**/reasoning_faults.log
+**/monitor_status*.txt
+TEST_REPORT.md
+
+# --- Python cache / venv ---
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.venv/
+venv/
+ENV/
+env/
+*.egg-info/
+dist/
+build/
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+.cursor/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# --- Legacy output dirs ---
+SkillEvolve_output/
+SkillEvolve_artifacts/
+SkillEvolve_results/
+*.log
+*.lock
+run.lock
+
+# --- Cursor / local assets (not paper/) ---
+assets/
+!paper/
+paper/*
+!paper/skilladaptor.pdf
+!paper/README.md

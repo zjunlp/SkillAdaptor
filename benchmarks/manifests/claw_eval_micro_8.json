@@ -1,0 +1,23 @@
+{
+  "name": "claw_eval_micro_8",
+  "description": "8-task Claw-Eval smoke — 3 train / 5 val / 2 test (disjoint, val>=5 for adoption gate).",
+  "benchmark": "claw-eval",
+  "input_tasks": [
+    "T162_automation_failure_recovery",
+    "T147zh_system_health_check",
+    "T146_task_backtracking"
+  ],
+  "validation_tasks": [
+    "T155zh_onsite_support_dispatch",
+    "T154_market_research_report",
+    "T131zh_order_profit_analysis",
+    "T163zh_quarterly_customer_review",
+    "T164_quarterly_customer_review"
+  ],
+  "test_tasks": [
+    "M078_doc_extraction_cross_benchmark",
+    "T161zh_automation_failure_recovery"
+  ],
+  "allow_train_val_overlap": false,
+  "probe_mode": false
+}

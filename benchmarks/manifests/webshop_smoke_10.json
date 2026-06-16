@@ -1,0 +1,12 @@
+{
+  "name": "webshop_smoke_10",
+  "description": "Small WebShop evolution smoke — 10 train goals, 5 val, 5 held-out test (official split ranges).",
+  "benchmark": "webshop",
+  "input_tasks": [1500, 1501, 1502, 1503, 1504, 1505, 1506, 1507, 1508, 1509],
+  "validation_tasks": [500, 501, 502, 503, 504],
+  "test_tasks": [0, 1, 2, 3, 4],
+  "notes": {
+    "split": "official WebShop train 1500+, val 500-1499, test 0-499",
+    "requires": ["WEBSHOP_PATH", "conda env webshop", "SkillEvolve_API_KEY"]
+  }
+}

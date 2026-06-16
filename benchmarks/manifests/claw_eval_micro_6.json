@@ -1,0 +1,20 @@
+{
+  "name": "claw_eval_micro_6",
+  "description": "Micro Claw-Eval smoke — 3 train / 3 val (probe; val<5 for quick wiring check).",
+  "benchmark": "claw-eval",
+  "input_tasks": [
+    "T162_automation_failure_recovery",
+    "T147zh_system_health_check",
+    "T146_task_backtracking"
+  ],
+  "validation_tasks": [
+    "T155zh_onsite_support_dispatch",
+    "T154_market_research_report",
+    "T131zh_order_profit_analysis"
+  ],
+  "test_tasks": [
+    "T163zh_quarterly_customer_review"
+  ],
+  "allow_train_val_overlap": false,
+  "probe_mode": true
+}

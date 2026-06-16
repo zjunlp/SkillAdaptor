@@ -1,0 +1,31 @@
+{
+  "name": "pinchbench_smoke_5",
+  "description": "Small-scale PinchBench evolution smoke (5 input, 5 val, 3 test). Val=5 satisfies min_sample_size without changing config thresholds.",
+  "benchmark": "pinchbench",
+  "input_tasks": [
+    "task_git_rescue_recovery",
+    "task_k8s_debugging",
+    "task_playwright_e2e",
+    "task_multi_file_refactoring",
+    "task_log_ssh_brute_force"
+  ],
+  "validation_tasks": [
+    "task_git_rescue_recovery",
+    "task_k8s_debugging",
+    "task_playwright_e2e",
+    "task_multi_file_refactoring",
+    "task_log_ssh_brute_force"
+  ],
+  "test_tasks": [
+    "task_playwright_e2e",
+    "task_multi_file_refactoring",
+    "task_log_ssh_brute_force"
+  ],
+  "allow_train_val_overlap": true,
+  "probe_mode": true,
+  "notes": {
+    "max_iterations_recommended": 2,
+    "requires": ["PINCHBENCH_PATH", "OpenClaw Gateway", "SkillEvolve_API_KEY"],
+    "warning": "probe_mode: input=validation overlap — use auto_discover or a disjoint manifest for paper eval"
+  }
+}

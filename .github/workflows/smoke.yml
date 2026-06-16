@@ -1,0 +1,71 @@
+name: smoke
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  lint-and-dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: skill-adaptor
+        run: pip install -r requirements.txt openai pydantic pyyaml
+
+      - name: Import core modules
+        working-directory: skill-adaptor
+        run: |
+          python -c "from core.orchestrator import SkillEvolveOrchestrator"
+          python -c "from core.provider_config import resolve_provider, validate_profile"
+          python -c "from adapters.claw_eval_adapter.executor import ClawEvalExecutor"
+          python -c "from runtime.skill_export import export_skills_to_workspace, format_skill_markdown"
+          python -c "from runtime.plugin_host import PluginHost"
+
+      - name: Plugin init + dry-run (no API)
+        working-directory: skill-adaptor
+        run: |
+          python run_plugin.py init --workspace /tmp/sa-ws --template smoke5
+          python run_plugin.py --workspace /tmp/sa-ws --dry-run
+
+      - name: Plugin dry-run with manifest (no API)
+        working-directory: skill-adaptor
+        run: |
+          python run_plugin.py \
+            --manifest ../benchmarks/manifests/pinchbench_smoke_5.json \
+            --dry-run
+
+      - name: Unit tests (no API)
+        working-directory: skill-adaptor
+        run: python -m pytest tests/ -q --ignore=tests/integration
+
+      - name: Provider template validation
+        working-directory: skill-adaptor
+        run: |
+          python -c "
+          import os
+          os.environ['OPENAI_API_KEY']='test'
+          os.environ['OPENAI_API_BASE_URL']='http://127.0.0.1:1/v1'
+          os.environ['SkillEvolve_MODEL']='gpt-4.1'
+          from core.provider_config import resolve_provider, validate_profile
+          p = resolve_provider('relay-gpt41')
+          assert not validate_profile(p) or 'missing' not in str(validate_profile(p))
+          print('provider_config_ok')
+          "
+
+  # Live smoke requires secrets — enable when OPENAI_API_KEY is configured in repo secrets
+  live-smoke:
+    if: false  # set to: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Live PinchBench smoke (manual only)
+        run: echo "Configure OPENAI_API_KEY + PINCHBENCH_PATH in secrets to enable"

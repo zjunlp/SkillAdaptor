@@ -1,0 +1,33 @@
+{
+  "name": "claw_eval_smoke_10_hard",
+  "description": "10 harder Claw-Eval tasks for small-scale evolution smoke.",
+  "benchmark": "claw-eval",
+  "input_tasks": [
+    "T162_automation_failure_recovery",
+    "T161zh_automation_failure_recovery",
+    "T155zh_onsite_support_dispatch",
+    "T147zh_system_health_check",
+    "T146_task_backtracking",
+    "T154_market_research_report",
+    "T163zh_quarterly_customer_review",
+    "T164_quarterly_customer_review",
+    "T131zh_order_profit_analysis",
+    "M078_doc_extraction_cross_benchmark"
+  ],
+  "validation_tasks": [
+    "T162_automation_failure_recovery",
+    "T147zh_system_health_check"
+  ],
+  "test_tasks": [
+    "T155zh_onsite_support_dispatch",
+    "T146_task_backtracking",
+    "T154_market_research_report",
+    "T163zh_quarterly_customer_review"
+  ],
+  "allow_train_val_overlap": true,
+  "notes": {
+    "status": "phase2",
+    "requires": ["CLAW_EVAL_PATH", "CLAW_EVAL_TASKS_DIR=tasks", "OpenClaw Gateway"],
+    "executor": "list_tasks() now supports T*/task.yaml directories"
+  }
+}
