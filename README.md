@@ -22,6 +22,7 @@
 
 **SkillAdaptor** is a **training-free** harness plugin for [OpenClaw](https://github.com/openclaw/openclaw) and **Claude Code**. It evolves agent **`SKILL.md`** files from **real failure trajectories**, validates each candidate with **A/B testing** on a held-out validation set **Q′**, and exports adopted skills into your workspace.
 
+- **Step-level attribution** — Localizer finds the accountable failure step **t★** in each trajectory; Linker attributes skills active at that step, then Reviser/Generator proposes a targeted fix (not whole-trajectory blur)
 - **Plugin-first** — `run_plugin.py init` + `run_plugin.py`; skills land in `skills/<id>/SKILL.md`
 - **Any task set** — not limited to bundled benchmarks; use `init --mode folders` and drop briefs under `input_task/`
 - **Retrieval-gated inject** — category + embedding matching; no global skill pollution on unrelated tasks
@@ -35,6 +36,7 @@
 
 | Feature | Description |
 |---------|-------------|
+| **Step-level adaptation** | Localizer → **t★** fault step · Linker → suspect skills at that step · Reviser/Generator → step-targeted skill edits |
 | **Training-free evolution** | Localizer → Linker → Reviser/Generator → Validator (no weight updates) |
 | **Dual harness** | `--harness openclaw` (default) or `--harness claude-code` |
 | **Workspace plugin** | `run_plugin.py init` + `run_plugin.py` — skills land in `skills/<id>/SKILL.md` |
@@ -219,7 +221,7 @@ If you use SkillAdaptor in research, please cite:
   title={SkillAdaptor: Self-Adapting Skills for LLM Agents from Trajectories},
   author={...},
   year={2026},
-  url={https://github.com/zjunlp/SkillAdaptor}
+  url={https://arxiv.org/abs/2606.01311}
 }
 ```
 
