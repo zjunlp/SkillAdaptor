@@ -2,7 +2,7 @@
 
 The canonical **TypeScript UI** lives in the sibling repo **SkillEvolve-openclaw** (`src/skill-evolve-ts`).
 
-The **Python evolution engine** (paper-aligned, smoke5 verified) lives in **this repo** under `skill-adaptor/`.
+The **Python evolution engine** (paper-aligned) lives in **this repo** under `skill-adaptor/`. It is a **general workspace plugin**: any tasks under `input_task/`, optional `--manifest`, or bridge `--input-trajectories`.
 
 ## Architecture (two repos, one pipeline)
 

@@ -31,7 +31,7 @@ def parse_init_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument('--provider', default='relay-gpt41')
     parser.add_argument('--model', default='gpt-4.1')
     parser.add_argument('--max-iterations', type=int, default=2)
-    parser.add_argument('--template', default='smoke5', help='Bundled manifest name (smoke5 → pinchbench_smoke_5.json)')
+    parser.add_argument('--template', default=None, help='Optional bundled manifest alias (local repro); default init uses folders mode')
     parser.add_argument('--mode', choices=['bundled', 'auto_discover', 'folders'], default=None, help='Task source: bundled manifest, PINCHBENCH auto split, or empty folders')
     parser.add_argument('--auto-discover-limit', type=int, default=30)
     return parser.parse_args(argv)

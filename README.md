@@ -19,14 +19,14 @@
 
 ---
 
-**SkillAdaptor** is a **training-free** harness plugin for [OpenClaw](https://github.com/openclaw/openclaw) and **Claude Code**. It evolves agent skills from **real failure trajectories**, and exports adopted skills into your workspace.
+**SkillAdaptor** is a **Python CLI + workspace plugin** that evolves agent **`SKILL.md`** files from failure trajectories. It plugs into **[OpenClaw](https://github.com/openclaw/openclaw)** and **Claude Code** via a harness layer (`--harness openclaw|claude-code`) — same evolution engine, different agent runtime. **Not tied to a fixed task list:** you bring any tasks (markdown briefs, manifest, or benchmark auto-discover); the step-level Localizer→Validator pipeline stays the same.
 
-- **Step-level attribution** — Localizer finds the accountable failure step **t★** in each trajectory; Linker attributes skills active at that step, then Reviser/Generator proposes a targeted fix
-- **Plugin-first** — `run_plugin.py init` + `run_plugin.py`; skills land in `skills/<id>/SKILL.md`
-- **`input_task/` auto-parse** — drop task briefs under `workspace/input_task/`; train/val split is inferred (no manifest required)
-- **Retrieval-gated inject** — category + embedding matching; no global skill pollution on unrelated tasks
+- **Step-level attribution** — Localizer finds **t★**; Linker attributes skills at that step; Reviser/Generator proposes a targeted fix
+- **General workspace plugin** — `run_plugin.py init` + `run_plugin.py`; outputs `skills/<id>/SKILL.md` (Claude Code: auto-sync to `.claude/skills/`)
+- **Flexible task sources** — `input_task/*.md` (default) · `--manifest` · `auto_discover` · OpenClaw bridge `--input-trajectories`
+- **Retrieval-gated inject** — category + embedding; no global skill pollution on unrelated tasks
 
-> Optional: `--manifest` / `--template smoke5` for bundled benchmark splits (local repro only).
+> PinchBench / WebShop / Claw-Eval are **optional executors** (set env paths). Core plugin works on any task briefs you provide.
 
 ---
 
@@ -36,8 +36,8 @@
 |---------|-------------|
 | **Step-level adaptation** | Localizer → **t★** fault step · Linker → suspect skills at that step · Reviser/Generator → step-targeted skill edits |
 | **Training-free evolution** | Localizer → Linker → Reviser/Generator → Validator (no weight updates) |
-| **Dual harness** | `--harness openclaw` (default) or `--harness claude-code` |
-| **Workspace plugin** | `run_plugin.py init` + `run_plugin.py` — skills land in `skills/<id>/SKILL.md` |
+| **Agent harness plugin** | Python CLI → OpenClaw gateway or Claude Code `.claude/skills/` |
+| **General task input** | `input_task/` · `--manifest` · `--mode auto_discover` · bridge trajectories |
 | **Retrieval-gated inject** | Category + embedding; no global skill pollution on unrelated tasks |
 
 ---
@@ -86,18 +86,27 @@ Set `PINCHBENCH_PATH` in `secrets/.env` to your PinchBench checkout (OpenClaw ta
 
 ## Quick start
 
-Install-only path: init workspace → add tasks under `input_task/` → run (no manifest file).
+**Python CLI** (works standalone or behind the OpenClaw TS plugin):
 
 ```bash
 cd skill-adaptor
-python run_plugin.py init --workspace ../my-workspace
-# copy or author briefs, e.g. benchmarks/generic_stubs/task_generic_shell_safe.md → my-workspace/input_task/
-python run_plugin.py --workspace ../my-workspace --dry-run   # wiring check, no API
-python run_plugin.py --workspace ../my-workspace \
-  --harness openclaw --provider relay-gpt41 --model gpt-4.1 --max-iterations 2
+python run_plugin.py init --workspace ../my-workspace --harness claude-code   # or openclaw
+# Task source A: drop briefs under input_task/
+cp ../benchmarks/generic_stubs/task_generic_shell_safe.md ../my-workspace/input_task/
+python run_plugin.py --workspace ../my-workspace --dry-run
+python run_plugin.py --workspace ../my-workspace --max-iterations 2
 ```
 
-**Workspace layout** (same idea as EvoSkill-style task folders):
+**Task sources** (pick one or combine with `--sync-tasks`):
+
+| Source | When to use |
+|--------|-------------|
+| `input_task/*.md` | **Default** — any custom tasks (EvoSkill-style workspace folders) |
+| `--manifest path.json` | Repro/paper splits (local file, optional) |
+| `--mode auto_discover` | Auto-split tasks from `PINCHBENCH_PATH` checkout |
+| OpenClaw bridge `--input-trajectories` | Seed failures from existing trajectory files |
+
+**Workspace layout:**
 
 | Path | Role |
 |------|------|
@@ -134,15 +143,15 @@ Optional held-out stubs: `my-workspace/test_task/`.
 
 ---
 
-## OpenClaw TypeScript plugin
+## OpenClaw plugin (TS UI + Python engine)
 
-Python engine (this repo):
+Like EvoSkill: **Python CLI is the engine**; OpenClaw adds a TypeScript plugin shell that calls it.
 
 ```
-plugin/python/run_openclaw_evolve.py  →  skill-adaptor/run_plugin.py  →  PluginHost
+OpenClaw TS plugin  →  plugin/python/run_openclaw_evolve.py  →  run_plugin.py  →  PluginHost
 ```
 
-Configure in your OpenClaw plugin (`openclaw.json`):
+Configure in `openclaw.json`:
 
 ```json
 {
@@ -157,14 +166,15 @@ See [plugin/openclaw/README.md](plugin/openclaw/README.md). TS UI lives in a sep
 
 ---
 
-## Claude Code
+## Claude Code (direct install)
+
+No OpenClaw required — point the harness at your project workspace; adopted skills sync to `.claude/skills/`:
 
 ```bash
-python run_plugin.py init --workspace ../my-workspace --mode folders --harness claude-code
-python run_plugin.py --workspace ../my-workspace --harness claude-code ...
+python run_plugin.py init --workspace /path/to/your-project --harness claude-code
+# add tasks under /path/to/your-project/input_task/
+python run_plugin.py --workspace /path/to/your-project --harness claude-code
 ```
-
-Adopted skills are exported to `skills/<id>/SKILL.md` and synced to `.claude/skills/`.
 
 ---
 
