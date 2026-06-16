@@ -11,6 +11,8 @@
 
 📄 [**Paper (PDF)**](paper/skilladaptor.pdf)
 
+<img src="paper/overview.png" alt="SkillAdaptor overview" width="900"/>
+
 </div>
 
 ---

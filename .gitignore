@@ -101,4 +101,5 @@ assets/
 !paper/
 paper/*
 !paper/skilladaptor.pdf
+!paper/overview.png
 !paper/README.md

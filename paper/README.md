@@ -2,4 +2,4 @@
 
 - **[skilladaptor.pdf](skilladaptor.pdf)** — SkillAdaptor method overview (EMNLP / ACL track).
 
-For README figures, export page 1 to `paper/overview.png` (optional).
+- **[overview.png](overview.png)** — Figure 1 (exported from the PDF for README).

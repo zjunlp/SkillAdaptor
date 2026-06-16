@@ -88,7 +88,7 @@ if (Test-Path $example) {
 }
 
 # --- required public files ---
-foreach ($req in @("README.md", "LICENSE", ".env.example", "skill-adaptor/run_plugin.py", "scripts/load_secrets.ps1", "paper/skilladaptor.pdf")) {
+foreach ($req in @("README.md", "LICENSE", ".env.example", "skill-adaptor/run_plugin.py", "scripts/load_secrets.ps1", "paper/skilladaptor.pdf", "paper/overview.png")) {
     if (Test-Path (Join-Path $root $req)) { Ok "present: $req" }
     else { Fail "missing required: $req" }
 }
