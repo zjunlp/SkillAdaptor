@@ -36,7 +36,16 @@ scripts/audit_micro10_retrieval.py
 scripts/benchmark_matrix_smoke.py
 scripts/monitor_plugin_run.ps1
 scripts/install_benchmark_env.ps1
-benchmarks/
+scripts/verify_providers.py
+benchmarks/scripts/
+
+# --- Local test / smoke output (never commit) ---
+pytest_result.txt
+pytest_out.txt
+pytest2.txt
+my-workspace/
+**/my-workspace/
+**/_debug_*.py
 
 # --- ALL workspaces (created by: run_plugin.py init / init_workspace.ps1) ---
 plugin/workspace/
