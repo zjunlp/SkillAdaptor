@@ -5,14 +5,16 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
 $core = Join-Path $root "skill-adaptor"
 $ws = Join-Path $env:TEMP "skilladaptor-smoke-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+$stub = Join-Path $root "benchmarks\generic_stubs\task_generic_shell_safe.md"
 
 Write-Host "=== SkillAdaptor smoke (no API) ===" -ForegroundColor Cyan
 Set-Location $core
 
 python -c "from core.orchestrator import SkillEvolveOrchestrator; from core.provider_config import resolve_provider; from runtime.plugin_host import PluginHost; print('imports_ok')"
-python run_plugin.py init --workspace $ws --template smoke5
+python run_plugin.py init --workspace $ws
+New-Item -ItemType Directory -Force -Path (Join-Path $ws "input_task") | Out-Null
+Copy-Item $stub (Join-Path $ws "input_task\task_generic_shell_safe.md")
 python run_plugin.py --workspace $ws --dry-run
-python run_plugin.py --manifest (Join-Path $root "benchmarks\manifests\pinchbench_smoke_5.json") --dry-run
 
 $batch1 = @(
     "tests/test_adapter_hints.py",

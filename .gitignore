@@ -38,6 +38,7 @@ scripts/monitor_plugin_run.ps1
 scripts/install_benchmark_env.ps1
 scripts/verify_providers.py
 benchmarks/scripts/
+benchmarks/manifests/
 
 # --- Local test / smoke output (never commit) ---
 pytest_result.txt

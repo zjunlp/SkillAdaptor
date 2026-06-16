@@ -82,7 +82,18 @@ def write_run_record(workspace: Path, manifest: TaskManifest, result: dict, *, b
 def cmd_init(args: argparse.Namespace) -> int:
     mode = args.mode or ('bundled' if args.template else 'folders')
     config = init_workspace(Path(args.workspace), benchmark=args.benchmark, harness=args.harness, provider=args.provider, model=args.model, max_iterations=args.max_iterations, template=args.template if mode == 'bundled' else None, mode=mode, auto_discover_limit=args.auto_discover_limit)
-    manifest = manifest_from_project(Path(args.workspace), config)
+    try:
+        manifest = manifest_from_project(Path(args.workspace), config)
+    except ValueError:
+        print('SkillAdaptor workspace initialized')
+        print(f'  Path: {args.workspace}')
+        print(f'  Manifest mode: {config.manifest.mode}')
+        print(f'  Tasks: add *.md under input_task/ (then run again)')
+        print(f'  Harness: {config.harness}  Benchmark: {config.benchmark}')
+        print('\nNext:')
+        print(f'  . ..\\scripts\\load_secrets.ps1')
+        print(f'  python run_plugin.py --workspace {args.workspace}')
+        return 0
     print('SkillAdaptor workspace initialized')
     print(f'  Path: {args.workspace}')
     print(f'  Manifest mode: {config.manifest.mode}')
@@ -126,7 +137,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         manifest = _manifest_from_args(args, host)
     except ValueError as exc:
         print(f'Manifest error: {exc}')
-        print('Hint: python run_plugin.py init --workspace <path> --template smoke5')
+        print('Hint: python run_plugin.py init --workspace <path>  then add tasks under input_task/')
         return 1
     env = args.env
     if env == 'auto':

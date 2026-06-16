@@ -52,7 +52,8 @@ $blockedPrefixes = @(
     "assets/",
     "skill-adaptor/scripts/",
     "CHANGELOG.md",
-    "VERSION.md"
+    "VERSION.md",
+    "benchmarks/manifests/"
 )
 foreach ($prefix in $blockedPrefixes) {
     $files = git ls-files $prefix 2>$null
@@ -67,6 +68,15 @@ if ($keyHits) {
     Write-Host $keyHits
 } else {
     Ok "no sk-... keys in tracked files"
+}
+
+# --- no GitHub PATs in tracked files ---
+$patHits = git grep -E "ghp_[a-zA-Z0-9]{20,}|github_pat_[a-zA-Z0-9_]{20,}" 2>$null
+if ($patHits) {
+    Fail "GitHub PAT pattern in tracked files"
+    Write-Host $patHits
+} else {
+    Ok "no GitHub PATs in tracked files"
 }
 
 # --- no private relay IPs in tracked files ---

@@ -38,7 +38,7 @@ def load_tasks_from_workspace(workspace: Path, *, benchmark: str='openclaw', val
     input_tasks = _read_task_ids_from_dir(workspace / 'input_task')
     test_tasks = _read_task_ids_from_dir(workspace / 'test_task')
     if not input_tasks:
-        raise ValueError(f"No tasks in {workspace / 'input_task'}. Run: python run_plugin.py init --workspace <path> --template smoke5")
+        raise ValueError(f"No tasks in {workspace / 'input_task'}. Add *.md briefs, then run again.")
     n = len(input_tasks)
     val_count = max(1, int(n * val_ratio)) if n > 1 else 1
     if n > 1:

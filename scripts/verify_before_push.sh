@@ -17,7 +17,7 @@ for rel in secrets/.env skill-adaptor/secrets/.env; do
   fi
 done
 
-for prefix in docs/ secrets/ plugin/workspace/ plugin/workspace_bench/ assets/ skill-adaptor/scripts/ CHANGELOG.md VERSION.md; do
+for prefix in docs/ secrets/ plugin/workspace/ plugin/workspace_bench/ assets/ skill-adaptor/scripts/ CHANGELOG.md VERSION.md benchmarks/manifests/; do
   if git ls-files "$prefix" 2>/dev/null | grep -q .; then fail "tracked under $prefix"; else ok "nothing tracked under $prefix"; fi
 done
 
@@ -25,6 +25,12 @@ if git grep -E 'sk-[a-zA-Z0-9]{20,}' -- ':!*.example' ':!secrets/*' 2>/dev/null;
   fail "sk-... in tracked files"
 else
   ok "no sk-... keys in tracked files"
+fi
+
+if git grep -E 'ghp_[a-zA-Z0-9]{20,}|github_pat_[a-zA-Z0-9_]{20,}' 2>/dev/null; then
+  fail "GitHub PAT in tracked files"
+else
+  ok "no GitHub PATs in tracked files"
 fi
 
 if git grep -E 'http://(35|34)\.[0-9]+\.' 2>/dev/null; then

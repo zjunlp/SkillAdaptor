@@ -22,13 +22,14 @@ def test_stratified_split_disjoint_when_large_pool() -> None:
     assert len(iv) == 0
     assert len(split['validation_tasks']) >= 5
 
-def test_init_workspace_smoke5_template() -> None:
+def test_init_workspace_folders_mode() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         ws = Path(tmp) / 'ws'
-        init_workspace(ws, template='smoke5')
+        init_workspace(ws, mode='folders')
+        stub = ws / 'input_task' / 'task_demo.md'
+        stub.parent.mkdir(parents=True, exist_ok=True)
+        stub.write_text('---\nid: task_demo\ncategory: coding\n---\n\n# Demo\n', encoding='utf-8')
         assert load_project_config(ws) is not None
-        assert (ws / 'input_task').exists()
-        assert (ws / '.skill-adaptor' / 'project.json').exists()
         manifest = manifest_from_project(ws, load_project_config(ws))
-        assert len(manifest.validation_tasks) >= 5
-        assert (ws / 'input_task' / 'task_git_rescue_recovery.md').exists()
+        assert manifest.input_tasks
+        assert manifest.validation_tasks

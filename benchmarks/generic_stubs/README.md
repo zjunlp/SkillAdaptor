@@ -1,11 +1,8 @@
 # Generic task stubs (harness-agnostic briefs)
 
-These markdown files describe **portable** agent tasks (CSV, shell, API health, doc extract).
-Use them as:
+Portable agent task examples (CSV, shell, API health, doc extract).
 
-1. **Documentation** for what “universal” plugin tasks look like
-2. **Workspace stubs** — copy into `plugin/workspace/input_task/` for `folders` mode init
-3. **Future mock benchmark** — wire a local grader without PinchBench/WebShop/Claw
+1. Copy into `my-workspace/input_task/` after `run_plugin.py init`
+2. Run `python run_plugin.py --workspace my-workspace` — tasks are auto-parsed from filenames
 
-Real evolution still needs a benchmark executor (PinchBench / WebShop / Claw-Eval).
-For tri-benchmark smoke, use `benchmarks/manifests/*_micro_*.json` instead.
+Live runs still need a benchmark executor (PinchBench / WebShop / Claw-Eval via env paths).

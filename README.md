@@ -9,8 +9,7 @@
 <img src="paper/overview.png" alt="SkillAdaptor overview" width="900"/>
 
 [Installation](#installation) ·
-[Quick Start](#quick-start-bundled-smoke--wiring-check) ·
-[Generic Tasks](#generic-tasks-any-task-set--core-plugin-path) ·
+[Quick Start](#quick-start) ·
 [OpenClaw](#openclaw-typescript-plugin) ·
 [Citation](#citation)
 
@@ -20,15 +19,14 @@
 
 ---
 
-**SkillAdaptor** is a **training-free** harness plugin for [OpenClaw](https://github.com/openclaw/openclaw) and **Claude Code**. It evolves agent **`SKILL.md`** files from **real failure trajectories**, validates each candidate with **A/B testing** on a held-out validation set **Q′**, and exports adopted skills into your workspace.
+**SkillAdaptor** is a **training-free** harness plugin for [OpenClaw](https://github.com/openclaw/openclaw) and **Claude Code**. It evolves agent skills from **real failure trajectories**, and exports adopted skills into your workspace.
 
-- **Step-level attribution** — Localizer finds the accountable failure step **t★** in each trajectory; Linker attributes skills active at that step, then Reviser/Generator proposes a targeted fix (not whole-trajectory blur)
+- **Step-level attribution** — Localizer finds the accountable failure step **t★** in each trajectory; Linker attributes skills active at that step, then Reviser/Generator proposes a targeted fix
 - **Plugin-first** — `run_plugin.py init` + `run_plugin.py`; skills land in `skills/<id>/SKILL.md`
-- **Any task set** — not limited to bundled benchmarks; use `init --mode folders` and drop briefs under `input_task/`
+- **`input_task/` auto-parse** — drop task briefs under `workspace/input_task/`; train/val split is inferred (no manifest required)
 - **Retrieval-gated inject** — category + embedding matching; no global skill pollution on unrelated tasks
-- **Triple adopt gates** — source-task Δ>0, category HOLD_BASELINE, full Q′ HOLD_BASELINE
 
-> Bundled manifests (PinchBench / WebShop / Claw-Eval) are **optional**. For your own tasks, see [Generic tasks](#generic-tasks-any-task-set--core-plugin-path).
+> Optional: `--manifest` / `--template smoke5` for bundled benchmark splits (local repro only).
 
 ---
 
@@ -41,10 +39,6 @@
 | **Dual harness** | `--harness openclaw` (default) or `--harness claude-code` |
 | **Workspace plugin** | `run_plugin.py init` + `run_plugin.py` — skills land in `skills/<id>/SKILL.md` |
 | **Retrieval-gated inject** | Category + embedding; no global skill pollution on unrelated tasks |
-| **Triple adopt gates** | Source task Δ>0 · category HOLD_BASELINE · full Q′ HOLD_BASELINE |
-| **Anti-leak** | Disjoint manifests enforced; embedding text excludes task IDs |
-| **Fail-fast** | No silent LLM/embedding fallback |
-| **Evolution audit** | `evolution_output/evolution_audit.jsonl` — per-candidate adopt/reject record |
 
 ---
 
@@ -90,41 +84,32 @@ Set `PINCHBENCH_PATH` in `secrets/.env` to your PinchBench checkout (OpenClaw ta
 
 ---
 
-## Quick start (bundled smoke — wiring check)
+## Quick start
+
+Install-only path: init workspace → add tasks under `input_task/` → run (no manifest file).
 
 ```bash
 cd skill-adaptor
-python run_plugin.py init --workspace ../my-workspace --template smoke5
-python run_plugin.py \
-  --workspace ../my-workspace \
-  --manifest ../benchmarks/manifests/pinchbench_smoke_5.json \
-  --harness openclaw \
-  --provider relay-gpt41 --model gpt-4.1 \
-  --max-iterations 2 --env pinchbench
+python run_plugin.py init --workspace ../my-workspace
+# copy or author briefs, e.g. benchmarks/generic_stubs/task_generic_shell_safe.md → my-workspace/input_task/
+python run_plugin.py --workspace ../my-workspace --dry-run   # wiring check, no API
+python run_plugin.py --workspace ../my-workspace \
+  --harness openclaw --provider relay-gpt41 --model gpt-4.1 --max-iterations 2
 ```
 
-**Success:** log `-> ADOPTED` and `my-workspace/skills/<skill_id>/SKILL.md`.
+**Workspace layout** (same idea as EvoSkill-style task folders):
+
+| Path | Role |
+|------|------|
+| `input_task/*.md` | Task briefs — auto-scanned; ~20% held out as validation Q′ |
+| `test_task/` | Optional extra held-out stubs |
+| `skills/<id>/SKILL.md` | Adopted skills after Validator passes |
+
+Use **`--sync-tasks`** after editing task files. Live OpenClaw runs need `PINCHBENCH_PATH` in `secrets/.env`.
 
 ---
 
-## Generic tasks (any task set — core plugin path)
-
-Use this when you are **not** tied to a bundled benchmark manifest.
-
-### 1. Initialize empty workspace
-
-```bash
-cd skill-adaptor
-python run_plugin.py init \
-  --workspace ../my-workspace \
-  --mode folders \
-  --harness openclaw \
-  --benchmark pinchbench
-```
-
-### 2. Add your tasks
-
-Copy or author markdown briefs under `my-workspace/input_task/` (see [generic stubs](benchmarks/generic_stubs/) for format):
+## Task brief format
 
 ```markdown
 ---
@@ -145,19 +130,7 @@ Optional held-out stubs: `my-workspace/test_task/`.
 
 **Validation split:** auto-derived from `input_task/` (first ~20% → Q′, rest → train). No `validation_task/` folder required.
 
-### 3. Run evolution on the same task group
-
-```bash
-python run_plugin.py \
-  --workspace ../my-workspace \
-  --harness openclaw \
-  --provider relay-gpt41 --model gpt-4.1 \
-  --max-iterations 3
-```
-
-Manifest is resolved from workspace folders + `project.json`. Use **`--sync-tasks`** after editing task files.
-
-> **Executor note:** OpenClaw live runs use the PinchBench OpenClaw bridge (`PINCHBENCH_PATH`). WebShop / Claw-Eval are optional adapters when you set `WEBSHOP_PATH` / `CLAW_EVAL_PATH` and `--env webshop|claw-eval`.
+> **Executor note:** OpenClaw live runs use the PinchBench OpenClaw bridge (`PINCHBENCH_PATH`). WebShop / Claw-Eval are optional when you set `WEBSHOP_PATH` / `CLAW_EVAL_PATH` and `--env webshop|claw-eval`.
 
 ---
 

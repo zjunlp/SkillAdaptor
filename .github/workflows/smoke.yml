@@ -13,6 +13,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Secret scan (tracked files, no API)
+        run: |
+          ! git grep -E 'sk-[a-zA-Z0-9]{20,}' -- ':!*.example' ':!secrets/*' || exit 1
+          ! git grep -E 'ghp_[a-zA-Z0-9]{20,}|github_pat_[a-zA-Z0-9_]{20,}' || exit 1
+          ! git grep -E 'http://(35|34)\.[0-9]+\.' || exit 1
+          echo "secret_scan_ok"
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -33,15 +40,10 @@ jobs:
       - name: Plugin init + dry-run (no API)
         working-directory: skill-adaptor
         run: |
-          python run_plugin.py init --workspace /tmp/sa-ws --template smoke5
+          python run_plugin.py init --workspace /tmp/sa-ws
+          mkdir -p /tmp/sa-ws/input_task
+          cp ../benchmarks/generic_stubs/task_generic_shell_safe.md /tmp/sa-ws/input_task/
           python run_plugin.py --workspace /tmp/sa-ws --dry-run
-
-      - name: Plugin dry-run with manifest (no API)
-        working-directory: skill-adaptor
-        run: |
-          python run_plugin.py \
-            --manifest ../benchmarks/manifests/pinchbench_smoke_5.json \
-            --dry-run
 
       - name: Unit tests (no API)
         working-directory: skill-adaptor
