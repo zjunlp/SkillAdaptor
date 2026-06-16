@@ -53,7 +53,7 @@ pip install -r requirements.txt
 ### 2. Secrets (never commit)
 
 ```bash
-cd ..   # repo root
+cd ..   # repo root (SkillAdaptor/)
 mkdir -p secrets
 cp .env.example secrets/.env
 # Edit secrets/.env — API keys & paths (placeholders only in .env.example)
