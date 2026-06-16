@@ -1,7 +1,6 @@
 """Exclusive lock: one active plugin evolution run per workspace."""
 
 from __future__ import annotations
-import atexit
 import json
 import os
 from contextlib import contextmanager
@@ -18,10 +17,12 @@ def _is_pid_alive(pid: int) -> bool:
         return False
     try:
         os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
     except PermissionError:
         return True
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return False
     else:
         return True
 
@@ -52,30 +53,21 @@ def workspace_run_lock(workspace: Path, *, label: str='run') -> Iterator[Path]:
         raise WorkspaceRunLockError(f"Workspace locked by pid={holder.get('pid')} (started {holder.get('started_at', '?')}). Wait for it to finish or remove stale lock: {lock_path}")
     if lock_path.exists():
         try:
-            lock_path.unlink()
+            os.remove(str(lock_path))
         except OSError:
             pass
     try:
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        with open(lock_path, 'x', encoding='utf-8') as fh:
+            json.dump(payload, fh, ensure_ascii=False, indent=2)
     except FileExistsError as exc:
         raise WorkspaceRunLockError(f'Could not acquire workspace lock: {lock_path}') from exc
-    with os.fdopen(fd, 'w', encoding='utf-8') as fh:
-        json.dump(payload, fh, ensure_ascii=False, indent=2)
-
-    def _release() -> None:
+    try:
+        yield lock_path
+    finally:
         try:
             if lock_path.exists():
                 current = _read_lock(lock_path)
                 if current and int(current.get('pid', -1)) == pid:
-                    lock_path.unlink()
+                    os.remove(str(lock_path))
         except OSError:
-            pass
-    atexit.register(_release)
-    try:
-        yield lock_path
-    finally:
-        _release()
-        try:
-            atexit.unregister(_release)
-        except Exception:
             pass

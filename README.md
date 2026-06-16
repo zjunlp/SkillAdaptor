@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Paper](https://img.shields.io/badge/📄_Paper-EMNLP_2026-lightgrey)](paper/skilladaptor.pdf)
+[![Paper](https://img.shields.io/badge/📄_Paper-ARXIV_2026-lightgrey)](https://arxiv.org/abs/2606.01311)
 
 <img src="paper/overview.png" alt="SkillAdaptor overview" width="900"/>
 

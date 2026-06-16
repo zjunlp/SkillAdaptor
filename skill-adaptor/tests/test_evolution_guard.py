@@ -6,15 +6,6 @@ from pathlib import Path
 import pytest
 from runtime.evolution_guard import GlobalEvolutionLockError, cleanup_stale_locks, global_evolution_lock
 
-def test_global_lock_exclusive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    lock = tmp_path / 'global.lock'
-    monkeypatch.setenv('SkillAdaptor_GLOBAL_LOCK', str(lock))
-    with global_evolution_lock(label='a'):
-        with pytest.raises(GlobalEvolutionLockError):
-            with global_evolution_lock(label='b'):
-                pass
-    assert not lock.exists()
-
 def test_cleanup_stale_global_lock(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     lock = tmp_path / 'global.lock'
     monkeypatch.setenv('SkillAdaptor_GLOBAL_LOCK', str(lock))
@@ -31,3 +22,12 @@ def test_cleanup_workspace_lock(tmp_path: Path) -> None:
     wlock.write_text(f'{{"pid": {os.getpid() + 99999}}}', encoding='utf-8')
     cleaned = cleanup_stale_locks(ws)
     assert str(wlock) in cleaned
+
+def test_global_lock_exclusive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    lock = tmp_path / 'global.lock'
+    monkeypatch.setenv('SkillAdaptor_GLOBAL_LOCK', str(lock))
+    with global_evolution_lock(label='a'):
+        with pytest.raises(GlobalEvolutionLockError):
+            with global_evolution_lock(label='b'):
+                pass
+    assert not lock.exists()

@@ -36,7 +36,7 @@ scripts/audit_micro10_retrieval.py
 scripts/benchmark_matrix_smoke.py
 scripts/monitor_plugin_run.ps1
 scripts/install_benchmark_env.ps1
-benchmarks/scripts/
+benchmarks/
 
 # --- ALL workspaces (created by: run_plugin.py init / init_workspace.ps1) ---
 plugin/workspace/
