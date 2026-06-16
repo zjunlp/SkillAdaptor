@@ -46,7 +46,7 @@
 
 ```bash
 git clone https://github.com/zjunlp/SkillAdaptor.git
-cd skill-adaptor/skill-adaptor
+cd SkillAdaptor/skill-adaptor
 pip install -r requirements.txt
 ```
 
