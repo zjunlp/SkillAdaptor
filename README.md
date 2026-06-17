@@ -202,7 +202,7 @@ If you use SkillAdaptor in research, please cite:
 ```bibtex
 @article{skilladaptor2026,
   title={SkillAdaptor: Self-Adapting Skills for LLM Agents from Trajectories},
-  author={...},
+  author={Zhuoyun Yu, Xin Xie, Wuguannan Yao, Chenxi Wang, Lei Liang, Xiang Qi, Shumin Deng},
   year={2026},
   url={https://arxiv.org/abs/2606.01311}
 }
