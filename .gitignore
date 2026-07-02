@@ -22,6 +22,9 @@ skill-adaptor/secrets/
 **/.secrets
 **/secrets.json
 
+# --- Internal integration research (local only, not shipped) ---
+integration-research/
+
 # --- Internal docs (public doc = root README.md only) ---
 docs/
 skill-adaptor/docs/
@@ -45,7 +48,20 @@ scripts/smoke_no_api.ps1
 scripts/smoke_no_api.sh
 scripts/init_workspace.ps1
 benchmarks/scripts/
-benchmarks/manifests/
+# Sample task briefs, repro manifests, local probes (users bring their own tasks)
+benchmarks/
+
+# --- Local evolution / validate workspaces (never commit) ---
+_evolve*/
+_evolve_*/
+_evolve_*.log
+_pr_smoke_ws_claude/
+skill-adaptor/_validate_artifacts/
+
+# --- Internal plugin maintainer notes (not install package) ---
+plugin/skillnet/PR_CHECKLIST.md
+plugin/skillnet/UPSTREAM_PR.md
+integration-research/
 
 # --- Local test / smoke output (never commit) ---
 pytest_result.txt
@@ -53,6 +69,7 @@ pytest_out.txt
 pytest2.txt
 my-workspace/
 **/my-workspace/
+_pr_smoke_ws/
 **/_debug_*.py
 
 # --- ALL workspaces (created by: run_plugin.py init / init_workspace.ps1) ---

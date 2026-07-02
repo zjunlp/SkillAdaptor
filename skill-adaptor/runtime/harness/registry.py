@@ -6,14 +6,22 @@ from pathlib import Path
 from typing import Optional
 from .base import AgentHarness
 from .claude_code import ClaudeCodeHarness
+from .codex import CodexHarness
+from .hermes import HermesHarness
 from .openclaw import OpenClawHarness
-_REGISTRY: dict[str, type] = {'openclaw': OpenClawHarness, 'claude-code': ClaudeCodeHarness, 'claude': ClaudeCodeHarness}
+_REGISTRY: dict[str, type] = {
+    'openclaw': OpenClawHarness,
+    'claude-code': ClaudeCodeHarness,
+    'claude': ClaudeCodeHarness,
+    'codex': CodexHarness,
+    'hermes': HermesHarness,
+}
 
 def get_harness(name: Optional[str]=None, *, project_root: Optional[Path]=None) -> AgentHarness:
     key = (name or os.environ.get('SkillAdaptor_HARNESS', 'openclaw')).strip().lower()
     cls = _REGISTRY.get(key)
     if cls is None:
         raise ValueError(f"Unknown harness {key!r}. Supported: {', '.join(sorted(_REGISTRY))}")
-    if cls is ClaudeCodeHarness:
-        return ClaudeCodeHarness(project_root=project_root)
+    if cls in (ClaudeCodeHarness, CodexHarness, HermesHarness):
+        return cls(project_root=project_root)
     return cls()

@@ -11,11 +11,12 @@ from .task_domain import PROCEDURE_VOCABULARY, extract_grading_rubric, generator
 from .task_context import load_task_context_for_inference, load_task_markdown
 from .llm_json import parse_llm_json_object
 from .adapter_hints import get_active_hints
+from .skill_body_utils import enrich_shell_skill_data, smart_compact_skill_body
 if TYPE_CHECKING:
     from .config import SkillEvolveConfig
 
 class Generator:
-    MAX_SKILL_BODY_CHARS = 1200
+    MAX_SKILL_BODY_CHARS = 1600
     MAX_PROCEDURE_STEPS = 5
 
     def __init__(self, model_name: str='default', skill_template: str='enhanced', llm_client: Optional[Any]=None, duplication_similarity_threshold: float=0.75):
@@ -39,6 +40,13 @@ class Generator:
         response = self.llm_client.chat.completions.create(model=self.model_name, messages=[{'role': 'user', 'content': prompt}], temperature=0.3)
         content = response.choices[0].message.content
         skill_data = parse_llm_json_object(content, context='Generator skill proposal')
+        task_brief = self._load_task_brief(fault.task_id)
+        skill_data = enrich_shell_skill_data(
+            skill_data,
+            task_description=trajectory.task_description or '',
+            task_brief=task_brief,
+            wrong_action=fault.wrong_action or '',
+        )
         principle = str(skill_data.get('principle', fault.improvement_principle))
         if is_meta_improvement(principle):
             print(f'      [Generator] Rejected meta principle: {principle[:80]}')
@@ -79,9 +87,7 @@ class Generator:
         return text or 'When similar operational failure pattern appears'
 
     def _compact_skill_body(self, body: str) -> str:
-        if len(body) <= self.MAX_SKILL_BODY_CHARS:
-            return body
-        return body[:self.MAX_SKILL_BODY_CHARS] + '\n\n<!-- compacted -->\n'
+        return smart_compact_skill_body(body, max_chars=self.MAX_SKILL_BODY_CHARS)
     _META_SKILL_PATTERNS = ('transcript', 'capture action', 'capture and document', 'log all action', 'document action', 'action logging', 'session_status', 'observability', 'monitor agent', 'record every step', 'logging protocol', 'initiate task with', 'concrete first action without')
     _DOMAIN_HINTS = PROCEDURE_VOCABULARY
 

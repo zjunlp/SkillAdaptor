@@ -6,7 +6,7 @@ from typing import Optional
 from .project_config import ManifestSource, ProjectConfig, save_project_config
 from .task_loader import write_manifest
 from .task_sync import copy_bundled_template_manifest, manifest_from_project, sync_manifest_to_workspace
-WORKSPACE_README = '# SkillAdaptor Workspace\n\n## Layout\n\n| Path | Role |\n|------|------|\n| `input_task/` | Task briefs (*.md) — auto-scanned; validation Q′ inferred |\n| `test_task/` | Optional held-out evaluation stubs |\n| `skills/` | Adopted `skills/<id>/SKILL.md` |\n| `.skill-adaptor/project.json` | Harness, benchmark, manifest mode |\n| `.skill-adaptor/active_manifest.json` | Resolved task lists for last run |\n\n## Run\n\n```powershell\ncd skill-adaptor\npython run_plugin.py --workspace <this-dir>\n```\n\nAdd tasks under `input_task/`, then run. Re-init: `python run_plugin.py init --workspace <this-dir>`\n'
+WORKSPACE_README = '# SkillAdaptor Workspace\n\n## Layout\n\n| Path | Role |\n|------|------|\n| `input_task/` | Task briefs (*.md) — auto-scanned; validation Q′ inferred |\n| `test_task/` | Optional held-out evaluation task briefs |\n| `skills/` | Adopted `skills/<id>/SKILL.md` |\n| `.skill-adaptor/project.json` | Harness, benchmark, manifest mode |\n| `.skill-adaptor/active_manifest.json` | Resolved task lists for last run |\n\n## Run\n\n```powershell\ncd skill-adaptor\npython run_plugin.py --workspace <this-dir>\n```\n\nAdd tasks under `input_task/`, then run. Re-init: `python run_plugin.py init --workspace <this-dir>`\n'
 
 def ensure_workspace_dirs(workspace: Path) -> None:
     for name in ('input_task', 'test_task', 'skills', '.skill-adaptor/artifacts', '.skill-adaptor/runs', '.skill-adaptor/programs'):

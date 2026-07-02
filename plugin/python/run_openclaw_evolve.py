@@ -37,20 +37,22 @@ def _sync_input_tasks(workspace_dir: Path, state_dir: Path) -> list[str]:
             if path.suffix == '.md':
                 task_ids.append(path.stem)
     for tid in task_ids:
-        stub = input_dir / f'{tid}.md'
-        if not stub.exists():
-            stub.write_text(f'# {tid}\n\n(OpenClaw auto-loaded task stub)\n', encoding='utf-8')
+        brief_path = input_dir / f'{tid}.md'
+        if not brief_path.exists():
+            brief_path.write_text(
+                f'# {tid}\n\nAdd task brief content or set PINCHBENCH_PATH.\n',
+                encoding='utf-8',
+            )
     return task_ids
 
-def _bootstrap_trajectories(workspace_dir: Path, trajectories_path: str) -> None:
-    src = Path(trajectories_path)
-    if not src.exists():
-        print(f'input-trajectories not found: {src}', file=sys.stderr)
-        raise SystemExit(1)
-    dest_dir = workspace_dir / '.skill-adaptor' / 'artifacts' / 'trajectories'
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / src.name
-    dest.write_bytes(src.read_bytes())
+def _bootstrap_trajectories(workspace_dir: Path, trajectories_path: str, skill_root: Path) -> None:
+    sys.path.insert(0, str(skill_root))
+    from runtime.trajectory_bootstrap import bootstrap_trajectories
+    try:
+        dest = bootstrap_trajectories(workspace_dir, trajectories_path)
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1) from exc
     print(f'[Bridge] Bootstrapped trajectories → {dest}')
 
 def _latest_run_record(runs_dir: Path) -> Path | None:
@@ -91,7 +93,7 @@ def main() -> int:
             print(f'input-skills not found: {skills_path}', file=sys.stderr)
             return 1
     if args.input_trajectories:
-        _bootstrap_trajectories(workspace_dir, args.input_trajectories)
+        _bootstrap_trajectories(workspace_dir, args.input_trajectories, skill_root)
     task_ids = _sync_input_tasks(workspace_dir, state_dir)
     manifest_out = workspace_dir / '.skill-adaptor' / 'active_manifest.json'
     if args.all_as_test == 'true':

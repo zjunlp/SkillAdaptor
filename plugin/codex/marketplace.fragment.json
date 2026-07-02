@@ -1,0 +1,15 @@
+{
+  "name": "skill-adaptor",
+  "description": "SkillAdaptor — evolve agent SKILL.md files from failure trajectories",
+  "plugins": [
+    {
+      "name": "skill-adaptor",
+      "description": "Python CLI plugin for trajectory-driven skill adaptation",
+      "version": "0.1.0",
+      "source": {
+        "type": "local",
+        "path": "./plugins/skill-adaptor"
+      }
+    }
+  ]
+}

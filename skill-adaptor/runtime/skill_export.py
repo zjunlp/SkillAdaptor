@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import json
+import os
 import re
 import shutil
 from pathlib import Path
@@ -108,6 +109,67 @@ def sync_workspace_skills_to_claude(workspace_skills_dir: Path, project_root: Pa
         dst_dir = dest_root / skill_dir.name
         dst_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst_dir / 'SKILL.md')
+        count += 1
+    return count
+
+def _codex_home() -> Path:
+    return Path(os.environ.get('CODEX_HOME', Path.home() / '.codex'))
+
+def _hermes_home() -> Path:
+    return Path(os.environ.get('HERMES_HOME', Path.home() / '.hermes'))
+
+
+def sync_workspace_skills_to_hermes(
+    workspace_skills_dir: Path,
+    project_root: Path,
+    *,
+    category: str = 'skill-adaptor',
+    exclude_candidates: bool = True,
+) -> int:
+    """Mirror workspace skills to Hermes category layout under HERMES_HOME and workspace/.hermes/."""
+    if not workspace_skills_dir.exists():
+        return 0
+    dest_roots = [
+        _hermes_home() / 'skills' / category,
+        Path(project_root) / '.hermes' / 'skills' / category,
+    ]
+    count = 0
+    for skill_dir in sorted(workspace_skills_dir.iterdir()):
+        if not skill_dir.is_dir():
+            continue
+        if exclude_candidates and skill_dir.name.startswith('_'):
+            continue
+        src = skill_dir / 'SKILL.md'
+        if not src.exists():
+            continue
+        for dest_root in dest_roots:
+            dest_root.mkdir(parents=True, exist_ok=True)
+            dst_dir = dest_root / skill_dir.name
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst_dir / 'SKILL.md')
+        count += 1
+    return count
+
+
+def sync_workspace_skills_to_codex(workspace_skills_dir: Path, project_root: Path, *, exclude_candidates: bool=True) -> int:
+    """Mirror workspace skills to Codex global + repo-local discovery paths (EvoSkill-style)."""
+    if not workspace_skills_dir.exists():
+        return 0
+    dest_roots = [_codex_home() / 'skills', Path(project_root) / '.agents' / 'skills']
+    count = 0
+    for skill_dir in sorted(workspace_skills_dir.iterdir()):
+        if not skill_dir.is_dir():
+            continue
+        if exclude_candidates and skill_dir.name.startswith('_'):
+            continue
+        src = skill_dir / 'SKILL.md'
+        if not src.exists():
+            continue
+        for dest_root in dest_roots:
+            dest_root.mkdir(parents=True, exist_ok=True)
+            dst_dir = dest_root / skill_dir.name
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst_dir / 'SKILL.md')
         count += 1
     return count
 

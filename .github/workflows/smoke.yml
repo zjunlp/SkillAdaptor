@@ -42,7 +42,15 @@ jobs:
         run: |
           python run_plugin.py init --workspace /tmp/sa-ws
           mkdir -p /tmp/sa-ws/input_task
-          cp ../benchmarks/generic_stubs/task_generic_shell_safe.md /tmp/sa-ws/input_task/
+          cat > /tmp/sa-ws/input_task/smoke_task.md <<'EOF'
+          ---
+          id: smoke_task
+          category: shell
+          ---
+          # Smoke task
+          ## Prompt
+          Write one safe shell command to command.txt.
+          EOF
           python run_plugin.py --workspace /tmp/sa-ws --dry-run
 
       - name: Provider template validation

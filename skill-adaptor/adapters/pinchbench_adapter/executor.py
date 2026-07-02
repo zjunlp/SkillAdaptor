@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from core.types import Trajectory, Step, Skill
 from core.openclaw_hygiene import cleanup_agent_sessions, clear_bootstrap_files, discover_workspace_root, openclaw_agent_id, require_gateway_running, DEFAULT_BOOTSTRAP_FILES
-from adapters.errors import TaskExecutionError
+from adapters.errors import TaskExecutionError, PlaceholderDeliverableError
 from .trajectory_extractor import extract_trajectory_for_task, save_trajectory
 from .skill_tracker import create_step_tracker
 from core.step_skill_retriever import StepSkillRetriever
@@ -37,8 +37,18 @@ class PinchBenchExecutor:
         self.tasks_dir = self.pinchbench_path / tasks_dir
         self.results_dir = self.pinchbench_path / results_dir
         self.artifact_dir = Path(artifact_dir) if artifact_dir else None
-        self.api_key = api_key or os.environ.get('ANTHROPIC_API_KEY', '')
-        self.base_url = base_url or os.environ.get('OPENAI_BASE_URL', '')
+        self.api_key = (
+            api_key
+            or os.environ.get('OPENAI_API_KEY')
+            or os.environ.get('SkillEvolve_API_KEY')
+            or os.environ.get('ANTHROPIC_API_KEY', '')
+        )
+        self.base_url = (
+            base_url
+            or os.environ.get('OPENAI_API_BASE_URL')
+            or os.environ.get('SkillEvolve_BASE_URL')
+            or os.environ.get('OPENAI_BASE_URL', '')
+        )
         self.model = model
         self._llm_client = llm_client
         self.harness = harness or get_harness()
@@ -128,8 +138,29 @@ class PinchBenchExecutor:
         if self.base_url:
             env['OPENAI_BASE_URL'] = self.base_url
             env['BASE_URL'] = self.base_url
+        model = self.model or os.environ.get('SkillEvolve_MODEL') or os.environ.get('MODEL')
+        if model:
+            env['MODEL'] = model
+            env['SkillEvolve_MODEL'] = model
         env['PINCHBENCH_TIMEOUT'] = '1200'
         return env
+
+    def _load_task_description(self, task_id: str) -> str:
+        task_md = self.tasks_dir / f'{task_id}.md'
+        if not task_md.exists():
+            raise FileNotFoundError(f'Task markdown not found: {task_md}')
+        text = task_md.read_text(encoding='utf-8', errors='replace')
+        if '## Prompt' in text:
+            section = text.split('## Prompt', 1)[1]
+            for marker in ('## Expected', '## Grading', '## Automated'):
+                if marker in section:
+                    section = section.split(marker, 1)[0]
+            body = section.strip()
+            if body:
+                return body
+        raise TaskExecutionError(
+            f'Task {task_id}: missing or empty ## Prompt section in {task_md}'
+        )
 
     def _ensure_agent_auth(self, agent_id: str) -> bool:
         if not self.api_key:
@@ -241,20 +272,27 @@ class PinchBenchExecutor:
             pass
         return Path.home() / '.pinchbench'
 
-    def execute_task(self, task_id: str, model: Optional[str]=None, timeout: int=600, timeout_multiplier: float=2.0) -> Optional[Trajectory]:
-        python_cmd = self._get_python_cmd()
-        effective_model = model or os.environ.get('MODEL', 'default')
-        if timeout == 600:
-            timeout = int(os.environ.get('PINCHBENCH_EXECUTE_TIMEOUT', '1200'))
-        full_agent_id = openclaw_agent_id(effective_model)
-        cleanup_agent_sessions(full_agent_id)
-        require_gateway_running(max_wait_s=20.0)
-        workspace_base = discover_workspace_root(full_agent_id)
-        for workspace in workspace_base.glob('*/agent_workspace'):
-            clear_bootstrap_files(workspace)
-        pinchbench_workspace = Path.home() / '.pinchbench'
-        for workspace in pinchbench_workspace.glob('*/agent_workspace'):
-            clear_bootstrap_files(workspace)
+    def _verify_task_prompt_loaded(self, task_id: str) -> str:
+        prompt = self._load_task_description(task_id)
+        if len(prompt.strip()) < 20:
+            raise TaskExecutionError(
+                f'Task {task_id}: prompt text missing or too short ({len(prompt)} chars). '
+                f'Check {self.tasks_dir / f"{task_id}.md"}'
+            )
+        return prompt
+
+    def _check_trajectory_fidelity(self, trajectory: Trajectory, task_id: str) -> None:
+        from core.prompt_fidelity import check_trajectory_fidelity
+
+        if not trajectory.task_description or len(trajectory.task_description.strip()) < 20:
+            trajectory.task_description = self._verify_task_prompt_loaded(task_id)
+        report = check_trajectory_fidelity(trajectory)
+        if not report.ok:
+            raise PlaceholderDeliverableError(
+                f'Task {task_id} fidelity check failed after run: {report.summary()}'
+            )
+
+    def _execute_task_once(self, task_id: str, model: Optional[str], timeout: int, timeout_multiplier: float, effective_model: str) -> Optional[Trajectory]:
         if task_id in self._task_skills and self._task_skills.get(task_id):
             self._inject_skills_to_task(task_id)
         else:
@@ -265,36 +303,56 @@ class PinchBenchExecutor:
         if self.api_key:
             cmd.extend(['--api-key', self.api_key])
         env = self._setup_env()
-        workspaces_to_monitor = []
-        for workspace in workspace_base.glob('*/agent_workspace'):
-            workspaces_to_monitor.append(workspace)
-        for workspace in pinchbench_workspace.glob('*/agent_workspace'):
-            workspaces_to_monitor.append(workspace)
-        stop_cleanup = self._start_bootstrap_cleanup_thread(workspaces_to_monitor)
-        try:
-            result = subprocess.run(cmd, cwd=self.pinchbench_path, capture_output=True, text=True, timeout=timeout, env=env)
-            stop_cleanup.set()
-            for workspace in workspaces_to_monitor:
-                clear_bootstrap_files(workspace)
-            if result.returncode == 0:
-                trajectory_result = self._parse_task_result(task_id, effective_model)
-                if trajectory_result and 'openclaw_trajectory_steps' in trajectory_result.metadata:
-                    steps = trajectory_result.metadata['openclaw_trajectory_steps']
-                    print(f'[Executor] Trajectory extracted: {steps} steps from OpenClaw')
-                return trajectory_result
+        result = subprocess.run(cmd, cwd=self.pinchbench_path, capture_output=True, text=True, timeout=timeout, env=env)
+        if result.returncode != 0:
             stderr = (result.stderr or '')[:500]
             raise TaskExecutionError(f'Task {task_id} failed (exit {result.returncode}). stderr: {stderr}')
-        except subprocess.TimeoutExpired as exc:
-            stop_cleanup.set()
-            for workspace in workspaces_to_monitor:
-                clear_bootstrap_files(workspace)
-            raise TaskExecutionError(f'Task {task_id} timed out after {timeout}s') from exc
-        except TaskExecutionError:
-            stop_cleanup.set()
-            raise
-        except Exception as exc:
-            stop_cleanup.set()
-            raise TaskExecutionError(f'Error executing {task_id}: {exc}') from exc
+        trajectory_result = self._parse_task_result(task_id, effective_model)
+        if trajectory_result and 'openclaw_trajectory_steps' in trajectory_result.metadata:
+            steps = trajectory_result.metadata['openclaw_trajectory_steps']
+            print(f'[Executor] Trajectory extracted: {steps} steps from OpenClaw')
+        return trajectory_result
+
+    def execute_task(self, task_id: str, model: Optional[str]=None, timeout: int=600, timeout_multiplier: float=2.0) -> Optional[Trajectory]:
+        from core.prompt_fidelity import exec_max_retries
+
+        effective_model = model or self.model or os.environ.get('SkillEvolve_MODEL') or os.environ.get('MODEL', 'default')
+        if timeout == 600:
+            timeout = int(os.environ.get('PINCHBENCH_EXECUTE_TIMEOUT', '1200'))
+        full_agent_id = openclaw_agent_id(effective_model)
+        self._ensure_agent_auth(full_agent_id)
+        expected_prompt = self._verify_task_prompt_loaded(task_id)
+        max_attempts = exec_max_retries()
+        last_err: Optional[Exception] = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                cleanup_agent_sessions(full_agent_id)
+                require_gateway_running(max_wait_s=20.0)
+                if attempt > 1:
+                    print(f'[Executor] Retry {attempt}/{max_attempts} for {task_id} (prior: {last_err})')
+                trajectory_result = self._execute_task_once(task_id, model, timeout, timeout_multiplier, effective_model)
+                if trajectory_result is None:
+                    raise TaskExecutionError(f'Task {task_id} returned no trajectory')
+                if not trajectory_result.task_description or len(trajectory_result.task_description.strip()) < 20:
+                    trajectory_result.task_description = expected_prompt
+                self._check_trajectory_fidelity(trajectory_result, task_id)
+                if attempt > 1:
+                    trajectory_result.metadata = dict(trajectory_result.metadata or {})
+                    trajectory_result.metadata['fidelity_retries'] = attempt - 1
+                return trajectory_result
+            except PlaceholderDeliverableError as exc:
+                last_err = exc
+                if attempt >= max_attempts:
+                    raise TaskExecutionError(
+                        f'Task {task_id} failed fidelity after {max_attempts} attempt(s): {exc}'
+                    ) from exc
+            except subprocess.TimeoutExpired as exc:
+                raise TaskExecutionError(f'Task {task_id} timed out after {timeout}s') from exc
+            except TaskExecutionError:
+                raise
+            except Exception as exc:
+                raise TaskExecutionError(f'Error executing {task_id}: {exc}') from exc
+        return None
 
     def execute_tasks(self, task_ids: List[str], model: str='default', parallel: bool=False) -> List[Trajectory]:
         trajectories = []
@@ -366,7 +424,9 @@ class PinchBenchExecutor:
             print(f'[Executor] Using cached auxiliary trajectory ({len(cached_aux_steps)} steps)')
         raw_steps, step_provenance = merge_trajectory_steps(native_steps, openclaw_steps)
         print(f'[Executor] Step merge: native={len(native_steps)} extracted={len(openclaw_steps)} -> merged={len(raw_steps)} ({step_provenance})')
-        task_description = task_data.get('task_description', task_id)
+        task_description = task_data.get('task_description') or task_data.get('prompt')
+        if not task_description:
+            task_description = self._load_task_description(task_id)
         steps_for_annotation = [{'observation': rs['observation'], 'action': rs['action'], 'type': 'action', 'skills_used': list(rs.get('skills_used') or [])} for rs in raw_steps]
         enriched_steps = steps_for_annotation
         if self._step_retriever and self._skill_bank_dict:
@@ -413,7 +473,7 @@ class PinchBenchExecutor:
         metadata = {'source': 'pinchbench', 'step_provenance': step_provenance, 'native_step_count': len(native_steps), 'extracted_step_count': len(openclaw_steps), 'result_file': str(data.get('file', ''))}
         if openclaw_traj:
             metadata['openclaw_trajectory_steps'] = len(openclaw_traj)
-        return Trajectory(task_id=task_id, task_description=data.get('task_description', task_id), steps=steps, success=success, total_reward=score, error_step=error_step, metadata=metadata)
+        return Trajectory(task_id=task_id, task_description=task_description, steps=steps, success=success, total_reward=score, error_step=error_step, metadata=metadata)
 
     def evaluate_with_skills(self, tasks: List[str], skill_bank: Dict[str, Any], model: str='default') -> Dict[str, Any]:
         trajectories = self.execute_tasks(tasks, model)

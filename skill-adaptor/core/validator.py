@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 from .types import Skill, ValidationResult
+from .validation_metrics import resolve_adoption_pair
 if TYPE_CHECKING:
     from .config import SkillEvolveConfig
 
@@ -48,24 +49,34 @@ class Validator:
             revised_metrics = eval_func(revised_skill_bank, baseline_metrics=baseline_metrics)
         except TypeError:
             revised_metrics = eval_func(revised_skill_bank)
-        delta_success = revised_metrics.get('success_rate', 0) - baseline_metrics.get('success_rate', 0)
-        delta_avg = revised_metrics.get('avg_score', 0) - baseline_metrics.get('avg_score', 0)
-        regression = self._detect_regression(baseline_metrics, revised_metrics)
-        if delta_success < 0 or delta_avg < 0:
-            regression = True
-        source_task = getattr(skill, 'created_from', None) or ''
-        if source_task:
-            base_tasks = baseline_metrics.get('task_results', {})
-            rev_tasks = revised_metrics.get('task_results', {})
-            if isinstance(base_tasks, dict) and isinstance(rev_tasks, dict):
-                bt = base_tasks.get(source_task)
-                rt = rev_tasks.get(source_task)
-                if bt and rt:
-                    if bool(bt.get('success')) and (not bool(rt.get('success'))):
-                        regression = True
-                    if float(rt.get('score', 0.0)) < float(bt.get('score', 0.0)):
-                        regression = True
-        return ValidationResult(skill_id=skill.id, delta_success=delta_success, delta_avg_score=delta_avg, regression_detected=regression, sample_size=revised_metrics.get('sample_size', 0), baseline_metrics=baseline_metrics, revised_metrics=revised_metrics)
+        baseline_adopt, revised_adopt, frozen_regression, adoption_scope = resolve_adoption_pair(baseline_metrics, revised_metrics)
+        if adoption_scope:
+            delta_success = revised_adopt.get('success_rate', 0) - baseline_adopt.get('success_rate', 0)
+            delta_avg = revised_adopt.get('avg_score', 0) - baseline_adopt.get('avg_score', 0)
+            sample_size = revised_adopt.get('sample_size', 0)
+            regression = frozen_regression or delta_success < 0 or delta_avg < 0
+            if not frozen_regression:
+                regression = regression or self._detect_regression(baseline_adopt, revised_adopt)
+        else:
+            delta_success = revised_metrics.get('success_rate', 0) - baseline_metrics.get('success_rate', 0)
+            delta_avg = revised_metrics.get('avg_score', 0) - baseline_metrics.get('avg_score', 0)
+            sample_size = revised_metrics.get('sample_size', 0)
+            regression = self._detect_regression(baseline_metrics, revised_metrics)
+            if delta_success < 0 or delta_avg < 0:
+                regression = True
+            source_task = getattr(skill, 'created_from', None) or ''
+            if source_task:
+                base_tasks = baseline_metrics.get('task_results', {})
+                rev_tasks = revised_metrics.get('task_results', {})
+                if isinstance(base_tasks, dict) and isinstance(rev_tasks, dict):
+                    bt = base_tasks.get(source_task)
+                    rt = rev_tasks.get(source_task)
+                    if bt and rt:
+                        if bool(bt.get('success')) and (not bool(rt.get('success'))):
+                            regression = True
+                        if float(rt.get('score', 0.0)) < float(bt.get('score', 0.0)):
+                            regression = True
+        return ValidationResult(skill_id=skill.id, delta_success=delta_success, delta_avg_score=delta_avg, regression_detected=regression, sample_size=sample_size, baseline_metrics=baseline_metrics, revised_metrics=revised_metrics)
 
     def _detect_regression(self, baseline: Dict[str, Any], revised: Dict[str, Any]) -> bool:
         baseline_success = baseline.get('success_rate', 0)
@@ -101,6 +112,9 @@ class Validator:
 
     def _holds_baseline(self, result: ValidationResult, *, min_sample_size: Optional[int]=None) -> bool:
         required = min_sample_size if min_sample_size is not None else self.config.min_sample_size
+        revised = result.revised_metrics or {}
+        if revised.get('adoption_scope'):
+            required = max(1, min(required, len(revised['adoption_scope'])))
         if result.sample_size < required:
             return False
         if result.regression_detected:
@@ -116,28 +130,28 @@ class Validator:
         return result.delta_success > self.config.success_delta_threshold or result.delta_avg_score > self.config.avg_score_delta_threshold
 
     def should_adopt(self, result: ValidationResult) -> bool:
+        revised = result.revised_metrics or {}
+        if revised.get('frozen_regression'):
+            return False
         if not self._holds_baseline(result):
             return False
         return self._aggregate_improved(result)
 
-    def should_adopt_with_source_gate(self, full_result: ValidationResult, scoped_result: ValidationResult, skill: Skill) -> bool:
-        if not self._holds_baseline(full_result):
-            return False
-        if not self._holds_baseline(scoped_result, min_sample_size=1):
-            return False
-        source = getattr(skill, 'created_from', None)
-        if source and scoped_result.sample_size >= 1:
-            return self._source_task_improved(scoped_result)
-        return self._aggregate_improved(full_result)
+    def source_gate_advisory(self, scoped_result: Optional[ValidationResult]) -> str:
+        if scoped_result is None or scoped_result.sample_size < 1:
+            return 'n/a (injected Q′ only)'
+        if scoped_result.regression_detected:
+            return 'source regressed vs baseline (diagnostic only)'
+        if self._source_task_improved(scoped_result):
+            return 'source strict improvement (diagnostic only)'
+        return 'source no strict improvement (diagnostic only)'
+
+    def should_adopt_with_source_gate(self, full_result: ValidationResult, scoped_result: Optional[ValidationResult], skill: Skill) -> bool:
+        """Alias: adoption is injected Q′ only (scoped_result is diagnostic)."""
+        return self.should_adopt(full_result)
 
     def should_adopt_with_gates(self, full_result: ValidationResult, source_result: ValidationResult, category_result: Optional[ValidationResult], skill: Skill) -> bool:
-        if not self.should_adopt_with_source_gate(full_result, source_result, skill):
-            return False
-        if category_result is None:
-            return True
-        if category_result.sample_size < 1:
-            return False
-        return self._holds_baseline(category_result, min_sample_size=1)
+        return self.should_adopt(full_result)
 
     def batch_validate(self, skills: List[Skill], original_skill_bank: Dict[str, Skill], eval_func: Callable[[Dict[str, Skill]], Dict[str, Any]]) -> Dict[str, ValidationResult]:
         results = {}

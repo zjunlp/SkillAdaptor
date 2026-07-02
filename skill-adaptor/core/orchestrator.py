@@ -325,32 +325,31 @@ class SkillEvolveOrchestrator:
                     return eval_func(bank)
             adopt_result = self.validator.validate(skill, current_skills, revised_bank, full_eval, scope_key='full')
             print(f'    {skill.id}:')
-            print(f"      Validator (full validation set Q', n={adopt_result.sample_size}): Δ_success={adopt_result.delta_success:+.3f}, Δ_avg={adopt_result.delta_avg_score:+.3f}, regression={adopt_result.regression_detected}")
-            frozen = (adopt_result.revised_metrics or {}).get('retrieval_frozen_tasks')
+            revised_meta = adopt_result.revised_metrics or {}
+            adoption_scope = list(revised_meta.get('adoption_scope') or [])
+            if adoption_scope:
+                n_total = len(revised_meta.get('scoped_tasks') or validation_tasks)
+                print(f"      Validator (injected Q', n={adopt_result.sample_size}/{n_total} re-run): Δ_success={adopt_result.delta_success:+.3f}, Δ_avg={adopt_result.delta_avg_score:+.3f}, regression={adopt_result.regression_detected}")
+            else:
+                print(f"      Validator (full validation set Q', n={adopt_result.sample_size}): Δ_success={adopt_result.delta_success:+.3f}, Δ_avg={adopt_result.delta_avg_score:+.3f}, regression={adopt_result.regression_detected}")
+            frozen = revised_meta.get('retrieval_frozen_tasks')
             if frozen:
-                print(f"      [full Q'] retrieval-neutral: {len(frozen)} task(s) frozen (candidate not injected; scores from baseline)")
+                fr = revised_meta.get('frozen_regression', False)
+                print(f"      [frozen] {len(frozen)} task(s) not re-run; no-regression constraint={'FAIL' if fr else 'ok'}")
             scoped_result = None
             if skill.created_from:
-                scope_tasks = [skill.created_from]
+                from core.validation_metrics import source_result_from_full
+                src_id = skill.created_from
+                in_val = src_id in validation_tasks
+                val_label = ' (held-out val)' if in_val else ' (train origin)'
+                if src_id in adoption_scope:
+                    scoped_result = source_result_from_full(adopt_result, src_id)
+                    if scoped_result is not None:
+                        print(f"      [source] task {src_id}{val_label} (same injected run): Δ_success={scoped_result.delta_success:+.3f}, Δ_avg={scoped_result.delta_avg_score:+.3f}, regression={scoped_result.regression_detected}")
+                else:
+                    scope_tasks = [src_id]
 
-                def scoped_eval(bank, baseline_metrics=None, _scope=scope_tasks):
-                    try:
-                        return eval_func(bank, scope_tasks=_scope, baseline_metrics=baseline_metrics, candidate_skill_id=_sid)
-                    except TypeError:
-                        try:
-                            return eval_func(bank, scope_tasks=_scope)
-                        except TypeError:
-                            return eval_func(bank)
-                scoped_result = self.validator.validate(skill, current_skills, revised_bank, scoped_eval, scope_key=f'source_{scope_tasks[0]}')
-                in_val = skill.created_from in validation_tasks
-                print(f"      [source] task {scope_tasks[0]}{(' (held-out val)' if in_val else ' (train origin)')}: Δ_success={scoped_result.delta_success:+.3f}, Δ_avg={scoped_result.delta_avg_score:+.3f}, regression={scoped_result.regression_detected}")
-            category_result = None
-            if skill.created_from and self._task_category_fn:
-                src_cat = self._task_category_fn(skill.created_from)
-                cat_tasks = [t for t in validation_tasks if self._task_category_fn(t) == src_cat]
-                if cat_tasks and len(cat_tasks) < len(validation_tasks):
-
-                    def category_eval(bank, baseline_metrics=None, _scope=cat_tasks):
+                    def scoped_eval(bank, baseline_metrics=None, _scope=scope_tasks):
                         try:
                             return eval_func(bank, scope_tasks=_scope, baseline_metrics=baseline_metrics, candidate_skill_id=_sid)
                         except TypeError:
@@ -358,12 +357,11 @@ class SkillEvolveOrchestrator:
                                 return eval_func(bank, scope_tasks=_scope)
                             except TypeError:
                                 return eval_func(bank)
-                    category_result = self.validator.validate(skill, current_skills, revised_bank, category_eval, scope_key=f'category_{src_cat}')
-                    print(f'      [category] {src_cat} val n={category_result.sample_size}: Δ_success={category_result.delta_success:+.3f}, Δ_avg={category_result.delta_avg_score:+.3f}, regression={category_result.regression_detected}')
-            if scoped_result is not None:
-                adopt_ok = self.validator.should_adopt_with_gates(adopt_result, scoped_result, category_result, skill)
-            else:
-                adopt_ok = self.validator.should_adopt(adopt_result)
+                    scoped_result = self.validator.validate(skill, current_skills, revised_bank, scoped_eval, scope_key=f'source_{scope_tasks[0]}')
+                    print(f"      [source] task {src_id}{val_label} (extra run; not in injected scope): Δ_success={scoped_result.delta_success:+.3f}, Δ_avg={scoped_result.delta_avg_score:+.3f}, regression={scoped_result.regression_detected}")
+                if scoped_result is not None:
+                    print(f"      [source] advisory: {self.validator.source_gate_advisory(scoped_result)}")
+            adopt_ok = self.validator.should_adopt(adopt_result)
             if adopt_ok:
                 self.skill_bank.update_skill(skill)
                 accepted.append(skill)
@@ -371,7 +369,7 @@ class SkillEvolveOrchestrator:
                 self._on_skill_adopted(skill, adopt_result)
                 try:
                     from runtime.evolution_audit import append_audit_record, build_validation_audit
-                    append_audit_record(self.config.output_dir, build_validation_audit(skill_id=skill.id, created_from=getattr(skill, 'created_from', None), adopted=True, adopt_result=adopt_result, scoped_result=scoped_result, category_result=category_result))
+                    append_audit_record(self.config.output_dir, build_validation_audit(skill_id=skill.id, created_from=getattr(skill, 'created_from', None), adopted=True, adopt_result=adopt_result, scoped_result=scoped_result))
                 except OSError:
                     pass
                 ckpt = self.config.output_dir / 'skill_bank_checkpoint.json'
@@ -386,7 +384,7 @@ class SkillEvolveOrchestrator:
                 try:
                     from runtime.evolution_audit import append_audit_record, build_validation_audit
                     detail = self._rejection_detail(adopt_result, scoped_result)
-                    append_audit_record(self.config.output_dir, build_validation_audit(skill_id=skill.id, created_from=getattr(skill, 'created_from', None), adopted=False, adopt_result=adopt_result, scoped_result=scoped_result, category_result=category_result, detail=detail))
+                    append_audit_record(self.config.output_dir, build_validation_audit(skill_id=skill.id, created_from=getattr(skill, 'created_from', None), adopted=False, adopt_result=adopt_result, scoped_result=scoped_result, detail=detail))
                 except OSError:
                     pass
                 if adopt_result.regression_detected or adopt_result.delta_success < 0 or adopt_result.delta_avg_score < 0:
@@ -487,15 +485,20 @@ class SkillEvolveOrchestrator:
             print(f'Warning: Could not save rejection history: {e}')
 
     def _rejection_detail(self, result: ValidationResult, source_result: Optional[ValidationResult]=None) -> str:
-        if source_result is not None:
-            if source_result.delta_success <= 0 and source_result.delta_avg_score <= 0:
-                return 'source task no strict improvement (Δ≤0)'
-        if result.sample_size < self.config.min_sample_size:
-            return f'sample_size={result.sample_size} < min={self.config.min_sample_size}'
+        revised = result.revised_metrics or {}
+        if revised.get('frozen_regression'):
+            return 'frozen task(s) regressed (no-regression constraint)'
+        required = self.config.min_sample_size
+        if revised.get('adoption_scope'):
+            required = max(1, min(required, len(revised['adoption_scope'])))
+        if result.sample_size < required:
+            return f'sample_size={result.sample_size} < min={required}'
         if result.regression_detected:
-            return "regression on full validation set Q'"
+            scope = revised.get('adoption_scope')
+            label = "injected Q'" if scope else "full validation set Q'"
+            return f'regression on {label}'
         if result.delta_success < 0 or result.delta_avg_score < 0:
-            return "full Q' HOLD_BASELINE failed (Δ<0)"
+            return "injected Q' HOLD_BASELINE failed (Δ<0)" if revised.get('adoption_scope') else "full Q' HOLD_BASELINE failed (Δ<0)"
         return 'did not meet adoption criteria'
 
     def _aggregate_prior_candidate(self) -> str:

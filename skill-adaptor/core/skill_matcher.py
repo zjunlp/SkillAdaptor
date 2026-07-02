@@ -14,7 +14,7 @@ class SemanticSkillMatcher:
     DEFAULT_API_MODEL = PRIMARY_EMBEDDING_MODEL
     DEFAULT_THRESHOLD = 0.6
 
-    def __init__(self, model_name: str=DEFAULT_API_MODEL, similarity_threshold: float=DEFAULT_THRESHOLD, embedding_client: Optional[Any]=None, api_key: Optional[str]=None, base_url: Optional[str]=None):
+    def __init__(self, model_name: Optional[str]=None, similarity_threshold: float=DEFAULT_THRESHOLD, embedding_client: Optional[Any]=None, api_key: Optional[str]=None, base_url: Optional[str]=None):
         self.similarity_threshold = similarity_threshold
         self.model_name = resolve_embedding_model(model_name)
         self.embedding_client = embedding_client

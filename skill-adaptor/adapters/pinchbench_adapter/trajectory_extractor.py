@@ -99,11 +99,49 @@ def convert_to_webshop_format(events: List[Dict], task_info: Optional[Dict]=None
         steps.append({'step': current_step, 'type': 'final', 'observation': 'Task completed', 'action': '(End)', 'reward': score, 'done': True})
     return steps
 
+def _resolve_transcript_paths(sessions_dir: Path, task_id: str) -> List[Path]:
+    """Resolve OpenClaw session transcripts (legacy .jsonl and >=2026.6 trajectory files)."""
+    paths: List[Path] = []
+    seen: set[str] = set()
+
+    def _add(path: Path) -> None:
+        key = str(path.resolve())
+        if path.exists() and key not in seen:
+            seen.add(key)
+            paths.append(path)
+
+    for pattern in (
+        f'{task_id}_*.jsonl',
+        f'*{task_id}*.jsonl',
+        f'{task_id}_*.trajectory.jsonl',
+        f'*{task_id}*.trajectory.jsonl',
+    ):
+        for candidate in sessions_dir.glob(pattern):
+            _add(candidate)
+    for pointer in sorted(
+        sessions_dir.glob(f'*{task_id}*.trajectory-path.json'),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    ):
+        try:
+            payload = json.loads(pointer.read_text(encoding='utf-8'))
+        except (json.JSONDecodeError, OSError):
+            continue
+        raw_path = payload.get('runtimeFile') or payload.get('path') or payload.get('trajectoryPath')
+        if not raw_path:
+            continue
+        candidate = Path(raw_path)
+        if not candidate.is_absolute():
+            candidate = sessions_dir / candidate
+        _add(candidate)
+    paths.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return paths
+
 def _extract_from_agent_sessions(agent_id: str, task_id: str, result_data: Optional[Dict]=None) -> Optional[List[Dict]]:
     sessions_dir = Path.home() / '.openclaw' / 'agents' / agent_id / 'sessions'
     if not sessions_dir.exists():
         return None
-    jsonl_files = sorted(list(sessions_dir.glob(f'{task_id}_*.jsonl')) + list(sessions_dir.glob(f'*{task_id}*.jsonl')), key=lambda p: p.stat().st_mtime, reverse=True)
+    jsonl_files = _resolve_transcript_paths(sessions_dir, task_id)
     for jsonl_file in jsonl_files:
         events = parse_openclaw_transcript(jsonl_file)
         task_info = None
@@ -133,7 +171,7 @@ def discover_agent_ids_for_task(task_id: str, primary_agent_id: str) -> List[str
             sessions = agent_dir / 'sessions'
             if not sessions.exists():
                 continue
-            if any(sessions.glob(f'{task_id}_*.jsonl')) or any(sessions.glob(f'*{task_id}*.jsonl')):
+            if _resolve_transcript_paths(sessions, task_id):
                 aid = agent_dir.name
                 if aid not in ids:
                     ids.append(aid)

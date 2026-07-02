@@ -8,6 +8,7 @@ import re
 from core.types import Skill
 from core.skill_matcher import create_matcher
 from core.skill_retrieval import SkillRetrievalGate
+from core.skill_body_utils import pinchbench_deliverable_banner
 from .constraint_provider import PinchBenchConstraintProvider
 if TYPE_CHECKING:
     from runtime.retrieval_index import RetrievalIndex
@@ -114,17 +115,27 @@ class PinchBenchPolicyAdapter:
     def build_benchmark_args(self, tasks: Iterable[str], timeout_multiplier: float=2.0) -> BenchmarkArgs:
         return BenchmarkArgs(suite=','.join(tasks), artifact_dir=str(self.artifact_dir), timeout_multiplier=timeout_multiplier, no_upload=True)
 
-    def build_combined_skill_text(self, skills: List[Skill], template: str='enhanced', model: Optional[str]=None, global_prior: str='') -> str:
+    def _read_task_md(self, task_id: str, tasks_dir: Optional[Path]) -> str:
+        if tasks_dir is not None:
+            task_file = tasks_dir / f'{task_id}.md'
+            if task_file.exists():
+                return task_file.read_text(encoding='utf-8')
+        return ''
+
+    def build_combined_skill_text(self, skills: List[Skill], template: str='enhanced', model: Optional[str]=None, global_prior: str='', task_id: Optional[str]=None, tasks_dir: Optional[Path]=None) -> str:
         prior_block = ''
         if global_prior and global_prior.strip():
             prior_block = f'## Global Prior (π)\n\n{global_prior.strip()}\n\n---\n\n'
+        banner = ''
+        if task_id and tasks_dir is not None:
+            banner = pinchbench_deliverable_banner(task_id, self._read_task_md(task_id, tasks_dir))
         if not skills and (not prior_block):
             return ''
         skill_sections = []
         for i, skill in enumerate(skills, 1):
             skill_text = self.build_skill_text(skill, template=template, model=model)
             skill_sections.append(f'## Skill {i}: {skill.title}\n\n{skill_text}')
-        combined = prior_block + '# SKILLS\n\n'
+        combined = banner + prior_block + '# SKILLS\n\n'
         if skill_sections:
             combined += 'Use the following skills to complete the task:\n\n---\n\n'
             combined += '\n\n'.join(skill_sections[:3])

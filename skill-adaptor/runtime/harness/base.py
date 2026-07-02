@@ -1,4 +1,4 @@
-"""Agent harness protocol — OpenClaw, Claude Code, and other coding agents."""
+"""Agent harness protocol — OpenClaw, Claude Code, Codex CLI, Hermes Agent, and other coding agents."""
 
 from __future__ import annotations
 

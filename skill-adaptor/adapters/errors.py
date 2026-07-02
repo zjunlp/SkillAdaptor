@@ -9,3 +9,7 @@ class TaskExecutionError(RuntimeError):
 
 class GatewayUnavailableError(RuntimeError):
     pass
+
+
+class PlaceholderDeliverableError(TaskExecutionError):
+    """Agent output used placeholders or ignored the task prompt — retry eligible."""

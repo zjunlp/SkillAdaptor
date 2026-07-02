@@ -61,20 +61,24 @@ def configure_pinchbench_skill_injection(executor, policy_adapter, task_ids, ski
         skills = task_to_skills.get(task_id, [])
         if not skills and (not global_prior.strip()):
             continue
-        skill_texts[task_id] = policy_adapter.build_combined_skill_text(skills, template=template, model=model, global_prior=global_prior)
+        skill_texts[task_id] = policy_adapter.build_combined_skill_text(
+            skills,
+            template=template,
+            model=model,
+            global_prior=global_prior,
+            task_id=task_id,
+            tasks_dir=tasks_dir,
+        )
         task_skill_ids[task_id] = [s.id for s in skills]
         task_skill_objects[task_id] = {s.id: s for s in skills}
     executor.set_task_skills(skill_texts, task_skill_ids, task_skill_objects)
     return len(skill_texts)
 
+from core.validation_metrics import metrics_from_task_results as _metrics_from_task_results_impl
+from core.skill_body_utils import pinchbench_deliverable_banner
+
 def _metrics_from_task_results(task_ids: list[str], task_results: dict) -> dict:
-    rows = [task_results[tid] for tid in task_ids if tid in task_results and isinstance(task_results[tid], dict)]
-    if not rows:
-        return {'success_rate': 0.0, 'avg_score': 0.0, 'sample_size': 0, 'task_results': {}}
-    success_count = sum((1 for r in rows if r.get('success')))
-    total_score = sum((float(r.get('score', 0.0)) for r in rows))
-    n = len(rows)
-    return {'success_rate': success_count / n, 'avg_score': total_score / n, 'sample_size': n, 'task_results': {tid: task_results[tid] for tid in task_ids if tid in task_results}}
+    return _metrics_from_task_results_impl(list(task_ids), task_results)
 
 def evaluate_pinchbench_bank(executor, policy_adapter, validation_tasks, skill_bank, *, tasks_dir, template: str, model: str, scope_tasks: Optional[List[str]]=None, global_prior: str='', embedding_api_key: str='', embedding_base_url: str='', embedding_model: str='', candidate_skill_id: Optional[str]=None, baseline_metrics: Optional[dict]=None) -> dict:
     tasks = list(scope_tasks) if scope_tasks else list(validation_tasks)
@@ -88,6 +92,8 @@ def evaluate_pinchbench_bank(executor, policy_adapter, validation_tasks, skill_b
         merged = _metrics_from_task_results(tasks, base_tr)
         merged['scoped_tasks'] = tasks
         merged['retrieval_frozen_tasks'] = tasks
+        merged['adoption_scope'] = []
+        merged['frozen_regression'] = False
         print(f'    [Validate] retrieval freeze: {len(tasks)} task(s) unchanged (skill {candidate_skill_id} not injected on val)')
         return merged
     injected = configure_pinchbench_skill_injection(executor, policy_adapter, rerun_tasks if freeze_unrelated else tasks, skill_bank, tasks_dir=tasks_dir, template=template, model=model, global_prior=global_prior, embedding_api_key=embedding_api_key, embedding_base_url=embedding_base_url, embedding_model=embedding_model)
@@ -104,10 +110,26 @@ def evaluate_pinchbench_bank(executor, policy_adapter, validation_tasks, skill_b
         revised_tr = dict(base_tr)
         for t in trajectories:
             revised_tr[t.task_id] = {'success': t.success, 'score': t.total_reward}
+        frozen = [t for t in tasks if t not in retrieval_hits]
+        injection = list(rerun_tasks)
         merged = _metrics_from_task_results(tasks, revised_tr)
         merged['scoped_tasks'] = tasks
         merged['retrieval_frozen_tasks'] = frozen
-        merged['retrieval_rerun_tasks'] = rerun_tasks
+        merged['retrieval_rerun_tasks'] = injection
+        merged['adoption_scope'] = injection
+        from core.validation_metrics import frozen_tasks_regressed
+        merged['frozen_regression'] = frozen_tasks_regressed(frozen, base_tr, revised_tr) if frozen else False
+        adopt_b = _metrics_from_task_results(injection, base_tr)
+        adopt_r = _metrics_from_task_results(injection, revised_tr)
+        if injection:
+            print(
+                f"    [Validate] injected Q' n={len(injection)}/{len(tasks)}: "
+                f"Δ_success={adopt_r.get('success_rate', 0) - adopt_b.get('success_rate', 0):+.3f}, "
+                f"Δ_avg={adopt_r.get('avg_score', 0) - adopt_b.get('avg_score', 0):+.3f}"
+            )
+        if frozen:
+            fr = 'FAIL' if merged['frozen_regression'] else 'ok'
+            print(f'    [Validate] frozen {len(frozen)} task(s) regression check: {fr}')
         return merged
     if not trajectories:
         raise RuntimeError(f'PinchBench validation produced no trajectories for tasks={tasks!r}. Refusing silent zero metrics (check executor / gateway).')

@@ -50,11 +50,11 @@ The reference bridge delegates to `run_plugin.py` (same path as CLI smoke5_v02),
 | `benchmarkEnv` | `pinchbench` \| `claw-eval` \| `webshop` |
 | `allAsTest` | `false` for normal train/val split; `true` only for quick probes |
 
-CLI also supports `--harness openclaw|claude-code` and `--program-git` (optional git branches `skill-adaptor/program/*`).
+CLI also supports `--harness openclaw|claude-code|codex|hermes` and `--program-git` (optional git branches `skill-adaptor/program/*`).
 
 ## Environment
 
-Same as CLI: `PINCHBENCH_PATH`, `SkillEvolve_API_KEY`, embedding vars. Use `scripts/load_secrets.ps1` when developing locally.
+Same as CLI: load `secrets/.env` via `scripts/load_secrets.ps1` (API keys are never shipped in the repo). Set `PINCHBENCH_PATH` for live PinchBench runs.
 
 ## Do not duplicate the TS tree here
 

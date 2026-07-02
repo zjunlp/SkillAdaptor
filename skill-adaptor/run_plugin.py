@@ -27,7 +27,7 @@ def parse_init_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Initialize SkillAdaptor workspace')
     parser.add_argument('--workspace', type=str, default=str(_default_workspace()))
     parser.add_argument('--benchmark', default='pinchbench', choices=['pinchbench', 'claw-eval', 'webshop'])
-    parser.add_argument('--harness', default='openclaw', choices=['openclaw', 'claude-code'])
+    parser.add_argument('--harness', default='openclaw', choices=['openclaw', 'claude-code', 'codex', 'hermes'])
     parser.add_argument('--provider', default='relay-gpt41')
     parser.add_argument('--model', default='gpt-4.1')
     parser.add_argument('--max-iterations', type=int, default=2)
@@ -47,9 +47,10 @@ def parse_run_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument('--output', type=str, default=None)
     parser.add_argument('--skills', type=str, default=None)
     parser.add_argument('--dry-run', action='store_true')
-    parser.add_argument('--harness', choices=['openclaw', 'claude-code'], default=None)
+    parser.add_argument('--harness', choices=['openclaw', 'claude-code', 'codex', 'hermes'], default=None)
     parser.add_argument('--program-git', action='store_true')
-    parser.add_argument('--sync-tasks', action='store_true', help='Refresh task stubs from manifest/project')
+    parser.add_argument('--sync-tasks', action='store_true', help='Refresh task briefs from manifest/project')
+    parser.add_argument('--input-trajectories', type=str, default=None, help='Seed trajectory file into workspace artifacts before evolution')
     return parser.parse_args(argv)
 
 def _manifest_from_args(args: argparse.Namespace, host: PluginHost) -> TaskManifest:
@@ -127,6 +128,14 @@ def _maybe_reexec_for_benchmark(env: str) -> None:
 
 def cmd_run(args: argparse.Namespace) -> int:
     workspace = Path(args.workspace)
+    if args.input_trajectories:
+        from runtime.trajectory_bootstrap import bootstrap_trajectories
+        try:
+            dest = bootstrap_trajectories(workspace, args.input_trajectories)
+            print(f'[Plugin] Bootstrapped trajectories → {dest}')
+        except FileNotFoundError as exc:
+            print(f'Plugin run failed: {exc}')
+            return 1
     project = load_project_config(workspace)
     provider_name = args.provider or (project.provider if project else None) or os.environ.get('SkillAdaptor_PROVIDER', 'relay-gpt41')
     if provider_name in {'gpt', 'glm'}:
@@ -236,7 +245,7 @@ def _run_evolution_locked(args: argparse.Namespace, workspace: Path, project, ho
     record = write_run_record(workspace, manifest, result, bank_path=config.output_dir / 'skill_bank_final.json')
     print(f'\n[Plugin] Run record: {record}')
     bank_path = config.output_dir / 'skill_bank_final.json'
-    from runtime.skill_export import export_skills_to_workspace, list_adopted_skill_ids, sync_workspace_skills_to_claude
+    from runtime.skill_export import export_skills_to_workspace, list_adopted_skill_ids, sync_workspace_skills_to_claude, sync_workspace_skills_to_codex, sync_workspace_skills_to_hermes
     exported = export_skills_to_workspace(bank_path, skills_out)
     adopted_ids = list_adopted_skill_ids(bank_path)
     print(f'[Plugin] Exported {exported} skill(s) to {skills_out}')
@@ -244,8 +253,30 @@ def _run_evolution_locked(args: argparse.Namespace, workspace: Path, project, ho
         n_claude = sync_workspace_skills_to_claude(skills_out, workspace)
         if n_claude:
             print(f"[Plugin] Synced {n_claude} skill(s) to {workspace / '.claude' / 'skills'}")
+    elif host.harness_name == 'codex':
+        n_codex = sync_workspace_skills_to_codex(skills_out, workspace)
+        if n_codex:
+            codex_home = os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))
+            print(f"[Plugin] Synced {n_codex} skill(s) to {codex_home}/skills and {workspace / '.agents' / 'skills'}")
+    elif host.harness_name == 'hermes':
+        n_hermes = sync_workspace_skills_to_hermes(skills_out, workspace)
+        if n_hermes:
+            hermes_home = os.environ.get('HERMES_HOME', str(Path.home() / '.hermes'))
+            print(f"[Plugin] Synced {n_hermes} skill(s) to {hermes_home}/skills/skill-adaptor and {workspace / '.hermes' / 'skills' / 'skill-adaptor'}")
     if adopted_ids:
         print(f"[Plugin] Adopted: {', '.join(adopted_ids)}")
+    from runtime.skillnet_bridge import post_adopt_hooks
+    sn = post_adopt_hooks(workspace, adopted_ids)
+    if sn.get('evaluated'):
+        print(f"[Plugin] SkillNet evaluated {len(sn['evaluated'])} skill(s) (SKILLNET_POST_EVAL)")
+    if sn.get('analyze') is not None:
+        print('[Plugin] SkillNet analyze complete (SKILLNET_POST_ANALYZE)')
+    if sn.get('error'):
+        print(f"[Plugin] SkillNet hook skipped: {sn['error']}")
+    elif sn.get('note'):
+        print(f"[Plugin] {sn['note']}")
+    if sn.get('report_path'):
+        print(f"[Plugin] SkillNet report: {sn['report_path']}")
     if result.get('final_skill_count', 0) == 0:
         print('[Plugin] No skills adopted this run (see rejection_history.json and run log).')
     return 0

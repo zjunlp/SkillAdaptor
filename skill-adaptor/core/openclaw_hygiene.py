@@ -38,7 +38,7 @@ def cleanup_agent_sessions(agent_id: str) -> int:
         sessions_dir.mkdir(parents=True, exist_ok=True)
         return 0
     removed = 0
-    for pattern in ('*.jsonl', '*.jsonl.lock', '*.trajectory.jsonl'):
+    for pattern in ('*.jsonl', '*.jsonl.lock', '*.trajectory.jsonl', '*.trajectory-path.json'):
         for path in sessions_dir.glob(pattern):
             try:
                 path.unlink()

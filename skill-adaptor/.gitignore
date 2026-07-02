@@ -60,5 +60,6 @@ SkillEvolve_results/
 .DS_Store
 *.DS_Store
 
-# Local reports only (tests under tests/ must stay tracked)
+# Local reports and tests (repo root .gitignore excludes tests/)
+tests/
 TEST_REPORT.md

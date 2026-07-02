@@ -22,7 +22,7 @@ def resolve_bundled_manifest(path: str) -> Path:
             return c
     return candidates[0]
 
-def write_task_stub(workspace: Path, folder: str, task_id: str, body: str) -> Path:
+def write_task_brief(workspace: Path, folder: str, task_id: str, body: str) -> Path:
     dest_dir = workspace / folder
     dest_dir.mkdir(parents=True, exist_ok=True)
     out = dest_dir / f'{task_id}.md'
@@ -30,26 +30,37 @@ def write_task_stub(workspace: Path, folder: str, task_id: str, body: str) -> Pa
         out.write_text(body.rstrip() + '\n', encoding='utf-8')
     return out
 
-def stub_from_pinchbench_task(pinchbench_path: Path, task_id: str, tasks_dir: str='tasks') -> str:
+def brief_from_pinchbench_task(pinchbench_path: Path, task_id: str, tasks_dir: str='tasks') -> str:
     for path in (pinchbench_path / tasks_dir / f'{task_id}.md', pinchbench_path / f'{task_id}.md'):
         if path.exists():
             full = path.read_text(encoding='utf-8', errors='replace')
             brief = truncate_task_markdown_for_inference(full, max_chars=1800)
             return f'# {task_id}\n\n{brief}\n'
-    return f'# {task_id}\n\n(SkillAdaptor workspace stub — run with PINCHBENCH_PATH for full task.)\n'
+    return (
+        f'# {task_id}\n\n'
+        'Task brief not available. Set PINCHBENCH_PATH to a PinchBench checkout '
+        'or add a full task markdown under `input_task/`.\n'
+    )
+
+def _task_brief_without_pinchbench(task_id: str) -> str:
+    return (
+        f'# {task_id}\n\n'
+        'Add a full task markdown under `input_task/`, or set PINCHBENCH_PATH '
+        'to copy PinchBench task text into the workspace.\n'
+    )
 
 def sync_manifest_to_workspace(workspace: Path, manifest: TaskManifest, *, pinchbench_path: Optional[Path]=None, tasks_dir: str='tasks') -> None:
     pb = pinchbench_path or Path(os.environ.get('PINCHBENCH_PATH', ''))
 
     def _body(tid: str) -> str:
         if pb and pb.exists() and (manifest.benchmark in ('pinchbench', 'openclaw-generic')):
-            return stub_from_pinchbench_task(pb, tid, tasks_dir)
-        return f'# {tid}\n\n(SkillAdaptor task stub)\n'
+            return brief_from_pinchbench_task(pb, tid, tasks_dir)
+        return _task_brief_without_pinchbench(tid)
     for tid in manifest.input_tasks:
-        write_task_stub(workspace, 'input_task', tid, _body(tid))
+        write_task_brief(workspace, 'input_task', tid, _body(tid))
     for tid in manifest.test_tasks:
         if tid not in manifest.input_tasks:
-            write_task_stub(workspace, 'test_task', tid, _body(tid))
+            write_task_brief(workspace, 'test_task', tid, _body(tid))
     write_manifest(workspace / '.skill-adaptor' / 'active_manifest.json', manifest)
 
 def manifest_from_project(workspace: Path, config: ProjectConfig) -> TaskManifest:

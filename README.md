@@ -19,10 +19,10 @@
 
 ---
 
-**SkillAdaptor** is a **Python CLI + workspace plugin** that evolves agent **`SKILL.md`** files from failure trajectories. It plugs into **[OpenClaw](https://github.com/openclaw/openclaw)** and **Claude Code** via a harness layer (`--harness openclaw|claude-code`) — same evolution engine, different agent runtime. **Not tied to a fixed task list:** you bring any tasks (markdown briefs, manifest, or benchmark auto-discover); the step-level Localizer→Validator pipeline stays the same.
+**SkillAdaptor** is a **Python CLI + workspace plugin** that evolves agent **`SKILL.md`** files from failure trajectories. It plugs into **[OpenClaw](https://github.com/openclaw/openclaw)**, **Claude Code**, **Codex CLI**, and **[Hermes Agent](https://github.com/NousResearch/hermes-agent)** via a harness layer (`--harness openclaw|claude-code|codex|hermes`) — same evolution engine, different agent runtime. **Not tied to a fixed task list:** you bring any tasks (markdown briefs, manifest, or benchmark auto-discover); the step-level Localizer→Validator pipeline stays the same.
 
 - **Step-level attribution** — Localizer finds **t★**; Linker attributes skills at that step; Reviser/Generator proposes a targeted fix
-- **General workspace plugin** — `run_plugin.py init` + `run_plugin.py`; outputs `skills/<id>/SKILL.md` (Claude Code: auto-sync to `.claude/skills/`)
+- **General workspace plugin** — `run_plugin.py init` + `run_plugin.py`; outputs `skills/<id>/SKILL.md` (harness sync: `.claude/skills/`, `~/.codex/skills/`, `~/.hermes/skills/skill-adaptor/`, or OpenClaw workspace)
 - **Flexible task sources** — `input_task/*.md` (default) · `--manifest` · `auto_discover` · OpenClaw bridge `--input-trajectories`
 - **Retrieval-gated inject** — category + embedding; no global skill pollution on unrelated tasks
 
@@ -36,7 +36,7 @@
 |---------|-------------|
 | **Step-level adaptation** | Localizer → **t★** fault step · Linker → suspect skills at that step · Reviser/Generator → step-targeted skill edits |
 | **Training-free evolution** | Localizer → Linker → Reviser/Generator → Validator (no weight updates) |
-| **Agent harness plugin** | Python CLI → OpenClaw gateway or Claude Code `.claude/skills/` |
+| **Agent harness plugin** | Python CLI → OpenClaw gateway, Claude Code `.claude/skills/`, Codex `~/.codex/skills/`, or Hermes `~/.hermes/skills/skill-adaptor/` |
 | **General task input** | `input_task/` · `--manifest` · `--mode auto_discover` · bridge trajectories |
 | **Retrieval-gated inject** | Category + embedding; no global skill pollution on unrelated tasks |
 
@@ -80,7 +80,9 @@ openclaw gateway status   # Connectivity probe: ok
 ```
 
 Set `PINCHBENCH_PATH` in `secrets/.env` to your PinchBench checkout (OpenClaw task runner).  
-**Claude Code:** use `--harness claude-code`; adopted skills sync to `.claude/skills/`.
+**Claude Code:** `--harness claude-code` → syncs to `.claude/skills/`.  
+**Codex CLI:** `--harness codex` → syncs to `~/.codex/skills/` and `.agents/skills/` ([install guide](plugin/codex/README.md)).  
+**Hermes Agent:** `--harness hermes` → syncs to `~/.hermes/skills/skill-adaptor/` ([install guide](plugin/hermes/README.md)).
 
 ---
 
@@ -90,9 +92,8 @@ Set `PINCHBENCH_PATH` in `secrets/.env` to your PinchBench checkout (OpenClaw ta
 
 ```bash
 cd skill-adaptor
-python run_plugin.py init --workspace ../my-workspace --harness claude-code   # or openclaw
-# Task source A: drop briefs under input_task/
-cp ../benchmarks/generic_stubs/task_generic_shell_safe.md ../my-workspace/input_task/
+python run_plugin.py init --workspace ../my-workspace --harness claude-code   # or openclaw / codex / hermes
+# Task source A: add your own *.md briefs under my-workspace/input_task/
 python run_plugin.py --workspace ../my-workspace --dry-run
 python run_plugin.py --workspace ../my-workspace --max-iterations 2
 ```
@@ -111,7 +112,7 @@ python run_plugin.py --workspace ../my-workspace --max-iterations 2
 | Path | Role |
 |------|------|
 | `input_task/*.md` | Task briefs — auto-scanned; ~20% held out as validation Q′ |
-| `test_task/` | Optional extra held-out stubs |
+| `test_task/` | Optional extra held-out task briefs |
 | `skills/<id>/SKILL.md` | Adopted skills after Validator passes |
 
 Use **`--sync-tasks`** after editing task files. Live OpenClaw runs need `PINCHBENCH_PATH` in `secrets/.env`.
@@ -135,7 +136,7 @@ category: devops
 ...
 ```
 
-Optional held-out stubs: `my-workspace/test_task/`.
+Optional held-out briefs: `my-workspace/test_task/`.
 
 **Validation split:** auto-derived from `input_task/` (first ~20% → Q′, rest → train). No `validation_task/` folder required.
 
@@ -168,13 +169,40 @@ See [plugin/openclaw/README.md](plugin/openclaw/README.md). TS UI lives in a sep
 
 ## Claude Code (direct install)
 
-No OpenClaw required — point the harness at your project workspace; adopted skills sync to `.claude/skills/`:
+Adopted skills sync to `.claude/skills/`. **Exporting skills does not require OpenClaw**; live PinchBench validation (`--env pinchbench`) still runs tasks through the **OpenClaw gateway** and needs `PINCHBENCH_PATH` (same executor as `--harness openclaw`).
 
 ```bash
 python run_plugin.py init --workspace /path/to/your-project --harness claude-code
 # add tasks under /path/to/your-project/input_task/
+# load API keys: source scripts/load_secrets.sh  (or secrets/.env on Windows)
 python run_plugin.py --workspace /path/to/your-project --harness claude-code
 ```
+
+---
+
+## Codex CLI (direct install)
+
+No OpenClaw required — adopted skills sync to Codex discovery paths (`~/.codex/skills/` + `.agents/skills/`):
+
+```bash
+python run_plugin.py init --workspace /path/to/your-project --harness codex
+python run_plugin.py --workspace /path/to/your-project --harness codex
+```
+
+Enable skills in `~/.codex/config.toml` (`[features] skills = true`) and restart Codex. See [plugin/codex/README.md](plugin/codex/README.md) for marketplace plugin install.
+
+---
+
+## Hermes Agent (direct install)
+
+No OpenClaw required — adopted skills sync to Hermes category layout (`~/.hermes/skills/skill-adaptor/`):
+
+```bash
+python run_plugin.py init --workspace /path/to/your-project --harness hermes
+python run_plugin.py --workspace /path/to/your-project --harness hermes
+```
+
+See [plugin/hermes/README.md](plugin/hermes/README.md) for `HERMES_HOME`, `skills.external_dirs`, and operator skill install.
 
 ---
 
@@ -187,7 +215,9 @@ python run_plugin.py --workspace /path/to/your-project --harness claude-code
 | `SkillEvolve_MODEL` | e.g. `gpt-4.1` |
 | `SkillEvolve_EMBEDDING_MODEL` | Default `Qwen3-Embedding-8B` |
 | `SkillAdaptor_PROVIDER` | `relay-gpt41` \| `deepseek` \| `openrouter` |
-| `SkillAdaptor_HARNESS` | `openclaw` \| `claude-code` |
+| `SkillAdaptor_HARNESS` | `openclaw` \| `claude-code` \| `codex` \| `hermes` |
+| `CODEX_HOME` | Codex home (default `~/.codex`) |
+| `HERMES_HOME` | Hermes home (default `~/.hermes`) |
 | `PINCHBENCH_PATH` | Required for OpenClaw live execution |
 | `OPENCLAW_CLI` | Optional explicit `openclaw` path |
 
