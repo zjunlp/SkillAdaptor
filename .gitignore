@@ -33,6 +33,7 @@ VERSION.md
 
 # --- Local dev / test / monitor scripts (not part of install package) ---
 skill-adaptor/tests/
+skill-adaptor/fixtures/
 skill-adaptor/scripts/
 skill-adaptor/verify_fixes.py
 skill-adaptor/run_real_experiment.py
@@ -55,6 +56,7 @@ benchmarks/
 _evolve*/
 _evolve_*/
 _evolve_*.log
+_evolve_*.json
 _pr_smoke_ws_claude/
 skill-adaptor/_validate_artifacts/
 

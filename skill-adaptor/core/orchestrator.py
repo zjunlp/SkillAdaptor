@@ -17,6 +17,8 @@ from .generator import Generator
 from .validator import Validator, ValidationConfig, SimpleEvaluator
 from .skill_bank import SkillBankManager
 from .skill_matcher import SemanticSkillMatcher
+from .task_context import load_task_markdown
+from .skill_body_utils import refine_localized_fault, coerce_cold_start_fault, coerce_degraded_bank_fault
 
 @dataclass
 class SkillEvolveIteration:
@@ -65,12 +67,18 @@ class SkillEvolveOrchestrator:
         if initial_skill_bank:
             for skill in initial_skill_bank.values():
                 self.skill_bank.add_skill(skill)
+        self._initial_baseline_metrics: Optional[Dict[str, Any]] = None
         print('=' * 60)
         print('SkillEvolve: Training-Free Skill Evolution')
         print('=' * 60)
         print(f'Initial skills: {len(self.skill_bank)}')
+        for s in self.skill_bank.list_skills():
+            print(f'  - {s.id} v{s.version} (from {s.created_from or "seed"})')
         print(f'Training tasks: {len(training_tasks)}')
         print(f'Validation tasks: {len(validation_tasks)}')
+        print()
+        if validation_tasks:
+            self._initial_baseline_metrics = self._establish_validation_baseline(eval_func, validation_tasks)
         print()
         while self.iteration < self.config.max_iterations:
             self.iteration += 1
@@ -110,6 +118,56 @@ class SkillEvolveOrchestrator:
                 break
         return self._generate_report()
 
+    def _establish_validation_baseline(
+        self,
+        eval_func: Callable[..., Dict[str, Any]],
+        validation_tasks: List[str],
+    ) -> Dict[str, Any]:
+        """Phase 0: evaluate initial bank B₀ on Q′ before any L→G→V (paper A/B anchor)."""
+        bank = {s.id: s for s in self.skill_bank.list_skills()}
+        print('[0] Baseline evaluation on Q′ (initial skill bank B₀, before evolution)...')
+        try:
+            metrics = eval_func(bank)
+        except TypeError:
+            metrics = eval_func(bank, baseline_metrics=None)
+        scope_key = 'full'
+        baseline_key = f'{self.validator._get_bank_key(bank)}:{scope_key}'
+        self.validator._cached_baseline = metrics
+        self.validator._cached_baseline_key = baseline_key
+        sr = metrics.get('success_rate', 0.0)
+        avg = metrics.get('avg_score', 0.0)
+        n = metrics.get('sample_size', len(validation_tasks))
+        print(f'    B₀ on Q′: success_rate={sr:.3f}, avg_score={avg:.3f}, n={n}')
+        task_results = metrics.get('task_results') or {}
+        if isinstance(task_results, dict):
+            for tid in validation_tasks:
+                tr = task_results.get(tid, {})
+                if tr:
+                    print(
+                        f'      {tid}: score={float(tr.get("score", 0)):.2f} '
+                        f'success={bool(tr.get("success", False))}'
+                    )
+        out_path = Path(self.config.output_dir) / 'baseline_metrics.json'
+        try:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                'phase': 'B0_validation',
+                'skill_bank_ids': sorted(bank.keys()),
+                'validation_tasks': list(validation_tasks),
+                'metrics': {
+                    'success_rate': sr,
+                    'avg_score': avg,
+                    'sample_size': n,
+                    'task_results': task_results,
+                },
+                'timestamp': datetime.now().isoformat(),
+            }
+            out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+            print(f'    Saved baseline → {out_path}')
+        except OSError as exc:
+            print(f'    WARN: could not save baseline_metrics.json: {exc}')
+        return metrics
+
     def _execute_tasks(self, tasks: List[str], use_cache: bool=True) -> List[Trajectory]:
         trajectories: List[Trajectory] = []
         for task_id in tasks:
@@ -121,6 +179,25 @@ class SkillEvolveOrchestrator:
     def _execute_single_task(self, task_id: str) -> Optional[Trajectory]:
         return None
 
+    def _finalize_localized_fault(self, trajectory: Trajectory, fault: LocalizedFault) -> LocalizedFault:
+        skill_dict = {s.id: s for s in self.skill_bank.list_skills()}
+        coerced = coerce_cold_start_fault(fault, trajectory)
+        if coerced.fault_type != fault.fault_type:
+            print(
+                f'      Fault coerce: {fault.fault_type.value} -> {coerced.fault_type.value} '
+                '(no skill coverage for deliverable gap)'
+            )
+        fault = coerced
+        before_repair = fault.fault_type
+        fault = coerce_degraded_bank_fault(fault, trajectory, skill_dict)
+        if fault.fault_type != before_repair:
+            suspects = fault.skills_at_fault or ['?']
+            print(
+                f'      Fault coerce: {before_repair.value} -> {fault.fault_type.value} '
+                f'(degraded bank → repair path, suspect={suspects[0]})'
+            )
+        return fault
+
     def _process_failures(self, failures: List[Trajectory]) -> Tuple[List[Skill], List[Skill]]:
         revised_skills: List[Skill] = []
         new_skills: List[Skill] = []
@@ -130,6 +207,7 @@ class SkillEvolveOrchestrator:
         for trajectory in failures:
             fault = self.localizer.localize(trajectory)
             if fault is not None:
+                fault = self._finalize_localized_fault(trajectory, fault)
                 all_faults.append((trajectory, fault))
         unique_faults = self._deduplicate_faults_by_embedding(all_faults)
         print(f'    Unique fault patterns: {len(unique_faults)}/{len(all_faults)}')
@@ -149,11 +227,15 @@ class SkillEvolveOrchestrator:
             attributions = self.linker.attribute(fault, skill_dict, self.llm_client, skill_matcher=self._skill_matcher)
             if attributions:
                 print(f'      Attributed to {len(attributions)} skills')
-                high_conf = self.linker.filter_high_confidence(attributions, self.config.attribution_weight_threshold)
+                high_conf = self.linker.attributions_for_repair(
+                    fault, attributions, skill_dict, self.config.attribution_weight_threshold,
+                )
                 for attr in high_conf:
                     skill = skill_dict.get(attr.skill_id)
                     if skill:
-                        revised = self.reviser.revise(skill, fault, attr, rejection_summaries=reject_h)
+                        revised = self.reviser.revise(
+                        skill, fault, attr, rejection_summaries=reject_h, trajectory=trajectory,
+                    )
                         if revised:
                             if self._is_similar_to_rejected(revised):
                                 print(f'      -> Rejected (similar to previous rejected proposal)')
@@ -178,7 +260,21 @@ class SkillEvolveOrchestrator:
         if idx < 0 or idx >= len(trajectory.steps):
             return None
         step = trajectory.steps[idx]
-        return LocalizedFault(task_id=base_fault.task_id, step_index=idx, fault_type=base_fault.fault_type, observation=step.observation, wrong_action=step.action, skills_at_fault=list(step.skills_used), improvement_principle=base_fault.improvement_principle, fault_chain=base_fault.fault_chain)
+        fault = LocalizedFault(
+            task_id=base_fault.task_id,
+            step_index=idx,
+            fault_type=base_fault.fault_type,
+            observation=step.observation,
+            wrong_action=step.action,
+            skills_at_fault=list(step.skills_used),
+            improvement_principle=base_fault.improvement_principle,
+            fault_chain=base_fault.fault_chain,
+            deliverable_targets=list(base_fault.deliverable_targets),
+            wrong_artifact_note=base_fault.wrong_artifact_note,
+            rubric_gap=base_fault.rubric_gap,
+        )
+        task_md = load_task_markdown(trajectory.task_id) or ''
+        return refine_localized_fault(fault, trajectory, task_md)
 
     def _generate_candidates_for_fault(self, trajectory: Trajectory, fault: LocalizedFault) -> Tuple[List[Skill], List[Skill]]:
         revised_skills: List[Skill] = []
@@ -187,14 +283,23 @@ class SkillEvolveOrchestrator:
         reject_h = self._get_rejection_summaries_for_prompt()
         attributions = self.linker.attribute(fault, skill_dict, self.llm_client, skill_matcher=self._skill_matcher)
         if attributions:
-            high_conf = self.linker.filter_high_confidence(attributions, self.config.attribution_weight_threshold)
+            high_conf = self.linker.attributions_for_repair(
+                fault, attributions, skill_dict, self.config.attribution_weight_threshold,
+            )
             for attr in high_conf:
                 skill = skill_dict.get(attr.skill_id)
                 if skill:
-                    revised = self.reviser.revise(skill, fault, attr, rejection_summaries=reject_h)
+                    print(
+                        f'      [Repair] Reviser ← {attr.skill_id} v{skill.version} '
+                        f'(weight={attr.weight:.2f})'
+                    )
+                    revised = self.reviser.revise(
+                        skill, fault, attr, rejection_summaries=reject_h, trajectory=trajectory,
+                    )
                     if revised and (not self._is_similar_to_rejected(revised)):
                         revised_skills.append(revised)
         else:
+            print(f'      [Generate] No attribution (fault={fault.fault_type.value}) — new skill')
             new_skill = self.generator.generate(trajectory, fault, skill_dict, rejection_summaries=reject_h)
             if new_skill and (not self._is_similar_to_rejected(new_skill)):
                 new_skills.append(new_skill)
@@ -211,6 +316,7 @@ class SkillEvolveOrchestrator:
         for trajectory in failures:
             fault = self.localizer.localize(trajectory)
             if fault is not None:
+                fault = self._finalize_localized_fault(trajectory, fault)
                 all_faults.append((trajectory, fault))
         unique_faults = self._deduplicate_faults_by_embedding(all_faults)
         print(f'    Unique fault patterns: {len(unique_faults)}/{len(all_faults)}')
@@ -380,7 +486,8 @@ class SkillEvolveOrchestrator:
                     print(f'      [warn] checkpoint save failed: {e}')
             else:
                 reason = f'Δ_success={adopt_result.delta_success:+.3f}, Δ_avg={adopt_result.delta_avg_score:+.3f}, regression={adopt_result.regression_detected}'
-                self._record_rejection(skill, reason)
+                val_feedback = self._validation_feedback_for_rejection(adopt_result, skill.created_from)
+                self._record_rejection(skill, reason, validation_feedback=val_feedback)
                 try:
                     from runtime.evolution_audit import append_audit_record, build_validation_audit
                     detail = self._rejection_detail(adopt_result, scoped_result)
@@ -448,7 +555,14 @@ class SkillEvolveOrchestrator:
         self.iteration_history.append(record)
 
     def _generate_report(self) -> Dict[str, Any]:
-        report = {'iterations': self.iteration, 'final_skill_count': len(self.skill_bank), 'consecutive_rejections': self.consecutive_rejections, 'history': [{'iteration': r.iteration, 'failures': r.failures, 'revised': r.revised, 'generated': r.generated, 'accepted': r.accepted, 'skill_count': r.skill_count, 'timestamp': r.timestamp} for r in self.iteration_history], 'skill_bank': self.skill_bank.to_dict()}
+        newly_adopted: List[str] = []
+        seen_adopted: set[str] = set()
+        for r in self.iteration_history:
+            for sid in r.accepted:
+                if sid not in seen_adopted:
+                    seen_adopted.add(sid)
+                    newly_adopted.append(sid)
+        report = {'iterations': self.iteration, 'final_skill_count': len(self.skill_bank), 'newly_adopted_skill_ids': newly_adopted, 'consecutive_rejections': self.consecutive_rejections, 'history': [{'iteration': r.iteration, 'failures': r.failures, 'revised': r.revised, 'generated': r.generated, 'accepted': r.accepted, 'skill_count': r.skill_count, 'timestamp': r.timestamp} for r in self.iteration_history], 'skill_bank': self.skill_bank.to_dict()}
         report_path = self.config.output_dir / 'SkillEvolve_report.json'
         with open(report_path, 'w', encoding='utf-8') as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
@@ -550,7 +664,29 @@ class SkillEvolveOrchestrator:
             return False
         self.global_prior = candidate
         self._save_global_prior()
+        self.validator.clear_baseline_cache()
         return True
+
+    def _validation_feedback_for_rejection(self, adopt_result: ValidationResult, source_task_id: Optional[str]) -> str:
+        revised = adopt_result.revised_metrics or {}
+        task_results = revised.get('task_results') or {}
+        tid = source_task_id or ''
+        tr = task_results.get(tid) if tid else {}
+        if not tr and task_results:
+            tid, tr = next(iter(task_results.items()))
+        tail = str(tr.get('action_tail') or '').strip()
+        score = tr.get('score', 0)
+        ok = tr.get('success', False)
+        parts = [f'post-inject Δ_success={adopt_result.delta_success:+.3f} Δ_avg={adopt_result.delta_avg_score:+.3f}']
+        if tid:
+            parts.append(f'task={tid} score={score:.2f} success={ok}')
+        if tail:
+            parts.append(f'agent_tail: {tail}')
+        trace = str(tr.get('step_trace') or '').strip()
+        if trace and trace != '(empty trajectory)':
+            parts.append(f'step_trace: {trace[:420]}')
+        hint = 'skill did not change verifier-visible behavior — tighten deliverable name, negative example from wrong_action, and rubric-shape verify'
+        return '; '.join(parts) + f'; hint: {hint}'
 
     def _get_rejection_summaries_for_prompt(self, limit: int=5) -> List[str]:
         if not self._rejection_history:
@@ -560,7 +696,11 @@ class SkillEvolveOrchestrator:
         for info in items:
             title = info.get('skill_title', 'unknown')
             reason = info.get('reason', '')
-            summaries.append(f'- {title}: {reason}')
+            feedback = info.get('validation_feedback', '')
+            line = f'- {title}: {reason}'
+            if feedback:
+                line += f' | after validation: {feedback[:280]}'
+            summaries.append(line)
         return summaries
 
     def _on_skill_generated(self, skill: Skill) -> None:
@@ -589,13 +729,26 @@ class SkillEvolveOrchestrator:
             reg_path = self._program_registry.save_snapshot(snap)
             print(f'      [program] snapshot → {reg_path}')
 
-    def _record_rejection(self, skill: Skill, reason: str) -> None:
+    def _record_rejection(self, skill: Skill, reason: str, *, validation_feedback: str = '') -> None:
         signature = skill.body_sha256 or hashlib.sha256(skill.body.encode()).hexdigest()[:16]
         if signature in self._rejection_history:
             self._rejection_history[signature]['count'] += 1
             self._rejection_history[signature]['last_seen'] = datetime.now().isoformat()
+            if validation_feedback:
+                self._rejection_history[signature]['validation_feedback'] = validation_feedback
         else:
-            self._rejection_history[signature] = {'reason': reason, 'count': 1, 'first_seen': datetime.now().isoformat(), 'last_seen': datetime.now().isoformat(), 'skill_id': skill.id, 'skill_title': skill.title, 'skill_body_hash': skill.body_sha256}
+            entry = {
+                'reason': reason,
+                'count': 1,
+                'first_seen': datetime.now().isoformat(),
+                'last_seen': datetime.now().isoformat(),
+                'skill_id': skill.id,
+                'skill_title': skill.title,
+                'skill_body_hash': skill.body_sha256,
+            }
+            if validation_feedback:
+                entry['validation_feedback'] = validation_feedback
+            self._rejection_history[signature] = entry
         self._save_rejection_history()
 
     def _is_similar_to_rejected(self, skill: Skill, threshold: float=0.85) -> bool:

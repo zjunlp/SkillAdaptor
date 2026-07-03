@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 from .llm_json import parse_llm_json_object
 from .types import LocalizedFault, SkillAttribution, Skill, FaultType
 from .prompt_profile import PromptProfile
+from .llm_params import chat_temperature
 
 class Linker:
 
@@ -24,7 +25,7 @@ class Linker:
     def _attribute_with_llm(self, fault: LocalizedFault, skill_bank: Dict[str, Skill], llm_client: Any, skill_matcher: Optional[Any]=None) -> List[SkillAttribution]:
         relevant_skills = self._get_relevant_skills(fault, skill_bank, skill_matcher)
         prompt = self._build_attribution_prompt(fault, relevant_skills)
-        response = llm_client.chat.completions.create(model=self.model_name, messages=[{'role': 'user', 'content': prompt}], temperature=0.2)
+        response = llm_client.chat.completions.create(model=self.model_name, messages=[{'role': 'user', 'content': prompt}], temperature=chat_temperature(self.model_name, 0.2))
         content = response.choices[0].message.content
         parsed = parse_llm_json_object(content, context='Linker attribution')
         if not isinstance(parsed, dict):
@@ -44,6 +45,20 @@ class Linker:
             if skill_id in skill_bank:
                 attributions.append(SkillAttribution(skill_id=skill_id, weight=weight, reason=reason))
         attributions.sort(key=lambda x: x.weight, reverse=True)
+        if (
+            not attributions
+            and fault.fault_type == FaultType.SKILL_WRONG
+            and fault.skills_at_fault
+        ):
+            for sid in fault.skills_at_fault:
+                if sid in skill_bank:
+                    attributions.append(
+                        SkillAttribution(
+                            skill_id=sid,
+                            weight=0.75,
+                            reason='skill active at fault step (fallback attribution for repair)',
+                        )
+                    )
         return attributions
 
     def _get_relevant_skills(self, fault: LocalizedFault, skill_bank: Dict[str, Skill], skill_matcher: Optional[Any]=None) -> Dict[str, Skill]:
@@ -66,8 +81,31 @@ class Linker:
         synthetic_examples = '\n<example>\nFault: Agent clicked "Buy Now" without selecting size/color\nSkills:\n  - skill_buy: "Click Buy Now to purchase"\n  - skill_verify: "Check product attributes before buying"\nAttribution:\n  - skill_buy: weight=0.7 (lacked precondition warning)\n  - skill_verify: weight=0.2 (available but not emphasized enough)\n</example>\n\n<example>\nFault: Agent kept searching with same query getting no results\nSkills:\n  - skill_search: "Search for products using keywords"\nAttribution:\n  - skill_search: weight=0.4 (worked but lacked refinement guidance)\n  Note: This suggests skill_missing for "refine_search" rather than skill_wrong\n</example>\n'
         return f'# Skill Attribution Analysis\n\nYou are an expert agent debugger analyzing which skill(s) contributed to a failure.\n\n## Fault Type Context\n\nFault type: {fault.fault_type.value}\n\n- skill_wrong: A skill was used but gave incorrect guidance → attribute to that skill with HIGH weight\n- skill_missing: No skill covered this situation → LOW weights across available skills (or empty)\n- reasoning_wrong: Skills were adequate but agent chose wrong → MEDIUM weights\n\n## Fault Context\n\n**Task**: {fault.task_id}\n**Fault Step**: {fault.step_index}\n\n**Observation at Fault Step**:\n```\n{fault.observation[:600]}\n```\n\n**Wrong Action Taken**: {fault.wrong_action[:200]}\n\n**What Should Have Been Done**:\n{fault.improvement_principle[:300]}\n\n## Skills to Evaluate\n\n{skills_text}\n\n## Examples\n\n{synthetic_examples}\n\n## Attribution Guidelines\n\nAssign weights based on:\n1. **Direct Instruction Match** (±0.3): Did the skill explicitly instruct the wrong action?\n2. **Context Appropriateness** (±0.2): Was the skill misapplied?\n3. **Omission** (±0.2): Did the skill fail to warn against the wrong approach?\n4. **Misleading Description** (±0.2): Was the skill definition confusing?\n\n## Weight Scale\n\n- **0.8-1.0**: Skill fully responsible\n- **0.5-0.7**: Skill partially responsible\n- **0.2-0.4**: Skill tangentially related\n- **0.0-0.1**: Skill not relevant\n\n## Output Format\n\n```json\n{{\n  "attributions": [\n    {{\n      "skill_id": "skill_id_here",\n      "weight": 0.75,\n      "reason": "Explanation"\n    }}\n  ]\n}}\n```\n\nIf no skill shares meaningful responsibility, return empty: {{"attributions": []}}\n\n**Important**: Do not assign weight >= 0.5 unless the skill directly caused or failed to prevent the wrong action.\nSkills with weight < 0.5 are ignored for revision.\n'
 
-    def filter_high_confidence(self, attributions: List[SkillAttribution], threshold: float=0.6) -> List[SkillAttribution]:
+    def filter_high_confidence(self, attributions: List[SkillAttribution], threshold: float=0.55) -> List[SkillAttribution]:
         return [a for a in attributions if a.weight >= threshold]
+
+    def attributions_for_repair(
+        self,
+        fault: LocalizedFault,
+        attributions: List[SkillAttribution],
+        skill_bank: Dict[str, Skill],
+        threshold: float,
+    ) -> List[SkillAttribution]:
+        """High-confidence attributions, with repair-path fallback when LLM weights are too low."""
+        high = self.filter_high_confidence(attributions, threshold)
+        if high:
+            return high
+        if fault.fault_type == FaultType.SKILL_WRONG and fault.skills_at_fault:
+            for sid in fault.skills_at_fault:
+                if sid in skill_bank:
+                    return [
+                        SkillAttribution(
+                            skill_id=sid,
+                            weight=0.75,
+                            reason='repair path fallback (no attribution above threshold)',
+                        )
+                    ]
+        return []
 
     def get_primary_suspect(self, attributions: List[SkillAttribution]) -> Optional[SkillAttribution]:
         if not attributions:

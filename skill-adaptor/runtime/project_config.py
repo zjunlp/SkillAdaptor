@@ -21,7 +21,7 @@ class ProjectConfig:
     version: int = 1
     benchmark: str = 'pinchbench'
     harness: str = 'openclaw'
-    provider: str = 'relay-gpt41'
+    provider: str = 'auto'
     model: str = 'gpt-4.1'
     max_iterations: int = 2
     manifest: ManifestSource = field(default_factory=ManifestSource)

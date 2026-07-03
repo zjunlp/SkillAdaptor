@@ -11,7 +11,8 @@ from .task_domain import PROCEDURE_VOCABULARY, extract_grading_rubric, generator
 from .task_context import load_task_context_for_inference, load_task_markdown
 from .llm_json import parse_llm_json_object
 from .adapter_hints import get_active_hints
-from .skill_body_utils import enrich_shell_skill_data, smart_compact_skill_body
+from .skill_body_utils import enrich_shell_skill_data, enrich_artifact_skill_data, smart_compact_skill_body, build_contrastive_failure_block, format_trajectory_steps_for_analysis, extract_wrong_actions_from_rejections
+from .llm_params import chat_temperature
 if TYPE_CHECKING:
     from .config import SkillEvolveConfig
 
@@ -37,15 +38,23 @@ class Generator:
 
     def _generate_with_llm(self, trajectory: Trajectory, fault: LocalizedFault, existing_skills: Dict[str, Skill], rejection_summaries: Optional[List[str]]=None) -> Optional[Skill]:
         prompt = self._build_generation_prompt(fault, trajectory, existing_skills, rejection_summaries=rejection_summaries)
-        response = self.llm_client.chat.completions.create(model=self.model_name, messages=[{'role': 'user', 'content': prompt}], temperature=0.3)
+        response = self.llm_client.chat.completions.create(model=self.model_name, messages=[{'role': 'user', 'content': prompt}], temperature=chat_temperature(self.model_name, 0.3))
         content = response.choices[0].message.content
         skill_data = parse_llm_json_object(content, context='Generator skill proposal')
         task_brief = self._load_task_brief(fault.task_id)
+        wrong_for_enrich = self._merge_wrong_action_with_rejection(fault.wrong_action or '', rejection_summaries)
         skill_data = enrich_shell_skill_data(
             skill_data,
             task_description=trajectory.task_description or '',
             task_brief=task_brief,
-            wrong_action=fault.wrong_action or '',
+            wrong_action=wrong_for_enrich,
+        )
+        skill_data = enrich_artifact_skill_data(
+            skill_data,
+            task_description=trajectory.task_description or '',
+            task_brief=task_brief,
+            wrong_action=wrong_for_enrich,
+            deliverable_targets=fault.deliverable_targets or None,
         )
         principle = str(skill_data.get('principle', fault.improvement_principle))
         if is_meta_improvement(principle):
@@ -62,9 +71,35 @@ class Generator:
         domain_category = self._infer_domain_category(fault.task_id)
         return Skill(id=skill_id, title=skill_data.get('title', self._generate_title(fault)), description=skill_data.get('principle', fault.improvement_principle), body=body, when_to_apply=self._sanitize_trigger(skill_data.get('when_to_apply', self._infer_when_to_apply(fault)), fault.task_id), created_from=fault.task_id, domain_category=domain_category)
 
+    def _merge_wrong_action_with_rejection(self, wrong_action: str, rejection_summaries: Optional[List[str]]) -> str:
+        base = (wrong_action or '').strip()
+        extras = extract_wrong_actions_from_rejections(rejection_summaries)
+        if not extras:
+            if rejection_summaries:
+                for line in rejection_summaries:
+                    if 'agent_tail:' not in line:
+                        continue
+                    tail = line.split('agent_tail:', 1)[-1].strip()
+                    if tail and tail not in base:
+                        return f'{base} | validation_after_reject: {tail[:220]}'.strip(' |')
+            return base
+        merged = ' | '.join([base] + [e for e in extras if e not in base])
+        return merged[:480]
+
     def _build_generation_prompt(self, fault: LocalizedFault, trajectory: Trajectory, existing_skills: Dict[str, Skill], rejection_summaries: Optional[List[str]]=None) -> str:
+        contrast_block = build_contrastive_failure_block(fault, trajectory, rejection_summaries=rejection_summaries)
         context_steps = trajectory.get_step_context(fault.step_index, window=5)
-        context_str = '\n'.join([f'  Step {s.index}: action={s.action[:80]} | obs={s.observation[:120]}' for s in context_steps])
+        context_str = format_trajectory_steps_for_analysis(
+            Trajectory(
+                task_id=trajectory.task_id,
+                task_description=trajectory.task_description,
+                steps=context_steps,
+                success=trajectory.success,
+                total_reward=trajectory.total_reward,
+            ),
+            fault_step_index=fault.step_index,
+            max_steps=12,
+        )
         task_brief = self._load_task_brief(fault.task_id)
         full_md = load_task_markdown(fault.task_id) or task_brief
         task_ctx = load_task_context_for_inference(fault.task_id) or task_brief
@@ -77,7 +112,16 @@ class Generator:
         rejection_block = ''
         if rejection_summaries:
             rejection_block = '\n### Previously Rejected Proposals (do NOT repeat)\n' + '\n'.join(rejection_summaries[:5]) + '\n'
-        return f"""# Skill Generation from Failure Analysis\n\nYou are an expert agent debugger for SkillAdaptor. Distill a **compact**, **reusable** skill —\none actionable patch per localized fault, transferable within the task category.\n\n**Improvement direction (from localization — stay aligned, do not narrow to one task ID):**\n{fault.improvement_principle[:400]}\n\n**Category workflow (primary / fallback / verify):**\n{workflow_anchor}\n\n## Task category: {cat}\n\n## Rubric shapes for verification (NO answers — procedure must satisfy these shapes)\n{grading_rubric or 'Deliverable exists; inputs consumed; internal consistency checks pass.'}\n\n## FORBIDDEN (meta-skill anti-patterns — instant reject)\n- Logging, capturing, or documenting transcripts/session_status as the main procedure\n- Meta-skills about monitoring the agent instead of solving the task\n- Task IDs, benchmark names, or specific fixture filenames in when_to_apply or procedure\n- Numeric answers, expected scores, or golden values from grading rubrics\n\n## Required structure\n1. **Primary path**: concrete actions using tools (read / parse / write / run / test)\n2. **Fallback**: named alternate if primary fails (parse error, selector miss, etc.)\n3. **Verify**: checkpoint tied to rubric **shape** (artifact exists, tests pass, counts reconcile)\n4. **Negative**: anti-pattern matching the fault step (generic wording)\n5. **Scope**: state *when_to_apply* as observation patterns — skill must transfer to similar tasks in same category\n\n## Hard Limits\n- principle: max 2 sentences; reusable across tasks in this category\n- procedure: 3-5 steps; no hardcoded filenames — say "input data artifact", "report deliverable"\n- Keep skill **narrow in category** but **not tied to one task id** — avoids harming unrelated validation tasks\n\n## Input Context\n\nTask ID: {fault.task_id}\nTask Brief:\n{task_brief}\n\nFault Step: {fault.step_index + 1}\nFault Type: {fault.fault_type.value}\n\n### Trajectory Context\n```\n{context_str}\n```\n\n### Fault Details\nObservation: {fault.observation[:500]}\nWrong Action: {fault.wrong_action}\nImprovement Direction: {fault.improvement_principle[:400]}\n\n### Existing Skills (Avoid Duplication)\n{existing_text}\n{rejection_block}\n{adapter_block}\n\n## Output Schema\n\nRespond with valid JSON in ```json``` blocks:\n\n```json\n{{\n  "title": "Concise skill name (5-8 words, domain-specific)",\n  "principle": "Core rule (1-2 sentences) — MUST include fallback + verify",\n  "when_to_apply": "Observation patterns when this skill applies",\n  "procedure": [\n    "Step 1: Primary action + expected outcome",\n    "Step 2: Fallback if step 1 fails (name the trigger)",\n    "Step 3: Verification against grader (file/test/count)",\n    "Step 4: Optional refine loop"\n  ],\n  "validation_criteria": "Rubric-shape checks only (no leaked answers): artifact exists, metrics recompute, tests pass",\n  "qualification_criteria": "Preconditions before applying",\n  "negative_example": {{\n    "what_not_to_do": "The failure pattern from this trajectory",\n    "why_it_fails": "Why grader score stays 0"\n  }}\n}}\n```\n\n{self.prompt_profile.model_specific_block('generator')}"""
+        deliverable_line = ', '.join(fault.deliverable_targets) if fault.deliverable_targets else 'none'
+        artifact_block = ''
+        if fault.wrong_artifact_note or fault.rubric_gap or fault.deliverable_targets:
+            artifact_block = f"""
+### Deliverable anchor (from localization — shape only, no answers)
+- Targets: {deliverable_line}
+- Wrong artifact at t*: {fault.wrong_artifact_note or 'see Wrong Action below'}
+- Rubric gap: {fault.rubric_gap or 'deliverable format + scenario fidelity'}
+"""
+        return f"""# Skill Generation from Failure Analysis\n\nYou are an expert agent debugger for SkillAdaptor. Distill a **compact**, **reusable** skill —\none actionable patch per localized fault, transferable within the task category.\n\n**Only use Generator when fault_type=skill_missing and no suspect skill to revise.**\nIf an existing skill was misleading, revision (not new skill) is required — do not duplicate.\n\n{contrast_block}\n\n**Improvement direction (from localization — stay aligned, do not narrow to one task ID):**\n{fault.improvement_principle[:400]}\n{artifact_block}\n**Category workflow (primary / fallback / verify):**\n{workflow_anchor}\n\n## Task category: {cat}\n\n## Rubric shapes for verification (NO answers — procedure must satisfy these shapes)\n{grading_rubric or 'Deliverable exists; inputs consumed; internal consistency checks pass.'}\n\n## FORBIDDEN (meta-skill anti-patterns — instant reject)\n- Logging, capturing, or documenting transcripts/session_status as the main procedure\n- Meta-skills about monitoring the agent instead of solving the task\n- Task IDs or benchmark names in when_to_apply (deliverable filenames from the task prompt are allowed in procedure)\n- Numeric answers, expected scores, or golden values from grading rubrics\n\n## Required structure\n1. **Primary path**: concrete actions using tools (read / parse / write / run / test)\n2. **Fallback**: named alternate if primary fails (parse error, selector miss, etc.)\n3. **Verify**: checkpoint tied to rubric **shape** (artifact exists, tests pass, counts reconcile)\n4. **Negative**: anti-pattern from Wrong Action / wrong_artifact at t* (trajectory-grounded, no golden commands)\n5. **Scope**: state *when_to_apply* as observation patterns — skill must transfer to similar tasks in same category\n\n## Hard Limits\n- principle: max 2 sentences; reusable across tasks in this category\n- procedure: 3-5 steps; you MAY name deliverable filenames that appear in the task prompt (e.g. recovery.sh, command.txt); otherwise use generic "report deliverable"\n- Copy branch names, counts, and format constraints from the prompt — never invent alternate scenarios (remote backup, fetch-all)\n- Keep skill **narrow in category** but **not tied to one task id** — avoids harming unrelated validation tasks\n\n## Input Context\n\nTask ID: {fault.task_id}\nTask Brief:\n{task_brief}\n\nFault Step: {fault.step_index + 1}\nFault Type: {fault.fault_type.value}\n\n### Trajectory Context\n```\n{context_str}\n```\n\n### Fault Details\nObservation: {fault.observation[:500]}\nWrong Action: {fault.wrong_action}\nImprovement Direction: {fault.improvement_principle[:400]}\n\n### Existing Skills (Avoid Duplication)\n{existing_text}\n{rejection_block}\n{adapter_block}\n\n## Output Schema\n\nRespond with valid JSON in ```json``` blocks:\n\n```json\n{{\n  "title": "Concise skill name (5-8 words, domain-specific)",\n  "principle": "Core rule (1-2 sentences) — MUST include fallback + verify",\n  "when_to_apply": "Observation patterns when this skill applies",\n  "procedure": [\n    "Step 1: Primary action + expected outcome",\n    "Step 2: Fallback if step 1 fails (name the trigger)",\n    "Step 3: Verification against grader (file/test/count)",\n    "Step 4: Optional refine loop"\n  ],\n  "validation_criteria": "Rubric-shape checks only (no leaked answers): artifact exists, metrics recompute, tests pass",\n  "qualification_criteria": "Preconditions before applying",\n  "negative_example": {{\n    "what_not_to_do": "The failure pattern from this trajectory",\n    "why_it_fails": "Why grader score stays 0"\n  }}\n}}\n```\n\n{self.prompt_profile.model_specific_block('generator')}"""
 
     @staticmethod
     def _sanitize_trigger(text: str, task_id: str) -> str:

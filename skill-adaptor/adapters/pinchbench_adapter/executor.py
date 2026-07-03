@@ -3,6 +3,7 @@
 from __future__ import annotations
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -13,12 +14,15 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from core.types import Trajectory, Step, Skill
 from core.openclaw_hygiene import cleanup_agent_sessions, clear_bootstrap_files, discover_workspace_root, openclaw_agent_id, require_gateway_running, DEFAULT_BOOTSTRAP_FILES
+from core.openclaw_agent_setup import prepare_openclaw_for_model
 from adapters.errors import TaskExecutionError, PlaceholderDeliverableError
 from .trajectory_extractor import extract_trajectory_for_task, save_trajectory
 from .skill_tracker import create_step_tracker
 from core.step_skill_retriever import StepSkillRetriever
 from core.skill_matcher import SemanticSkillMatcher
 from core.trajectory_step_merge import load_cached_trajectory_steps, merge_trajectory_steps, steps_from_openclaw_trajectory, steps_from_pinchbench_transcript
+from runtime.execution_binding import apply_prompt_prefix
+from adapters.pinchbench_adapter.score_normalize import resolve_shell_task_score
 from runtime.harness import AgentHarness, get_harness
 from runtime.harness.openclaw import EVOLVED_SKILL_DIR as OPENCLAW_EVOLVED_SKILL_DIR
 OPENCLAW_BOOTSTRAP_FILES = DEFAULT_BOOTSTRAP_FILES
@@ -55,6 +59,7 @@ class PinchBenchExecutor:
         self._task_skills: Dict[str, str] = {}
         self._task_skill_ids: Dict[str, List[str]] = {}
         self._task_skill_objects: Dict[str, Dict[str, Any]] = {}
+        self._task_prompt_prefixes: Dict[str, str] = {}
         self._step_retriever: Optional[StepSkillRetriever] = None
         self._skill_bank_dict: Dict[str, Skill] = {}
         self._step_top_k: int = 3
@@ -87,6 +92,9 @@ class PinchBenchExecutor:
         self._task_skills = task_skills
         self._task_skill_ids = task_skill_ids or {}
         self._task_skill_objects = skill_objects or {}
+
+    def set_task_prompt_prefixes(self, prefixes: Dict[str, str]) -> None:
+        self._task_prompt_prefixes = {k: v for k, v in (prefixes or {}).items() if v and v.strip()}
     OPENCLAW_EVOLVED_SKILL_DIR = OPENCLAW_EVOLVED_SKILL_DIR
 
     def _inject_skills_to_task(self, task_id: str) -> None:
@@ -104,6 +112,7 @@ class PinchBenchExecutor:
         self._task_skills = {}
         self._task_skill_ids = {}
         self._task_skill_objects = {}
+        self._task_prompt_prefixes = {}
         self.clear_skill_bank()
         self.purge_all_skill_injections()
 
@@ -162,27 +171,13 @@ class PinchBenchExecutor:
             f'Task {task_id}: missing or empty ## Prompt section in {task_md}'
         )
 
-    def _ensure_agent_auth(self, agent_id: str) -> bool:
-        if not self.api_key:
-            return False
-        provider = 'custom'
-        if self.base_url:
-            if 'openai' in self.base_url.lower():
-                provider = 'openai'
-            elif 'anthropic' in self.base_url.lower():
-                provider = 'anthropic'
-        agent_dir = Path.home() / '.openclaw' / 'agents' / agent_id / 'agent'
-        agent_dir.mkdir(parents=True, exist_ok=True)
-        auth_file = agent_dir / 'auth-profiles.json'
-        auth_config = {'version': 1, 'profiles': {}}
-        for prov in [provider, 'openrouter', 'custom']:
-            auth_config['profiles'][prov] = {'apiKey': self.api_key}
-        try:
-            with open(auth_file, 'w', encoding='utf-8') as f:
-                json.dump(auth_config, f, indent=2)
-        except OSError as exc:
-            raise RuntimeError(f'Failed to write OpenClaw auth file {auth_file}: {exc}') from exc
-        return True
+    def _ensure_agent_auth(self, agent_id: str, effective_model: str) -> None:
+        prepare_openclaw_for_model(
+            effective_model,
+            api_key=self.api_key,
+            base_url=self.base_url,
+            fix_main_auth=True,
+        )
 
     def _get_agent_store_dir(self, agent_id: str) -> Path:
         base_dir = Path.home() / '.openclaw' / 'agents'
@@ -300,9 +295,9 @@ class PinchBenchExecutor:
         cmd = [*self._benchmark_cmd_prefix(), 'scripts/benchmark.py', '--model', effective_model, '--suite', task_id, '--no-upload', '--timeout-multiplier', str(timeout_multiplier)]
         if self.base_url:
             cmd.extend(['--base-url', self.base_url])
-        if self.api_key:
-            cmd.extend(['--api-key', self.api_key])
+        # API key is passed via env (OPENAI_API_KEY) in _setup_env — avoid argv leakage in ps/logs.
         env = self._setup_env()
+        env = apply_prompt_prefix(env, task_id, self._task_prompt_prefixes)
         result = subprocess.run(cmd, cwd=self.pinchbench_path, capture_output=True, text=True, timeout=timeout, env=env)
         if result.returncode != 0:
             stderr = (result.stderr or '')[:500]
@@ -320,7 +315,7 @@ class PinchBenchExecutor:
         if timeout == 600:
             timeout = int(os.environ.get('PINCHBENCH_EXECUTE_TIMEOUT', '1200'))
         full_agent_id = openclaw_agent_id(effective_model)
-        self._ensure_agent_auth(full_agent_id)
+        self._ensure_agent_auth(full_agent_id, effective_model)
         expected_prompt = self._verify_task_prompt_loaded(task_id)
         max_attempts = exec_max_retries()
         last_err: Optional[Exception] = None
@@ -412,7 +407,11 @@ class PinchBenchExecutor:
         step_tracker = None
         if skill_objects_for_task and self._llm_client:
             try:
-                step_tracker = create_step_tracker(skills=skill_objects_for_task, llm_client=self._llm_client, model=self.model)
+                step_tracker = create_step_tracker(
+                    skills=skill_objects_for_task,
+                    llm_client=self._llm_client,
+                    model=self.model or effective_model,
+                )
             except RuntimeError as e:
                 print(f'[Warning] Failed to create step tracker: {e}')
                 step_tracker = None
@@ -439,12 +438,15 @@ class PinchBenchExecutor:
                 merged['skills_used'] = native_ids if native_ids else emb_ids
                 enriched_steps.append(merged)
             print(f'[Executor] Per-step Top-{self._step_top_k} skills_used via embedding ({len(self._skill_bank_dict)} skills in bank)')
-        if step_tracker and enriched_steps:
+        use_llm_step_tracker = step_tracker and enriched_steps and (not self._step_retriever)
+        if use_llm_step_tracker:
             llm_enriched = step_tracker.track_trajectory_skills(enriched_steps)
             for i, step_dict in enumerate(llm_enriched):
                 native_ids = enriched_steps[i].get('skills_used') or []
                 llm_ids = step_dict.get('skills_used') or []
                 enriched_steps[i]['skills_used'] = native_ids if native_ids else llm_ids
+        elif step_tracker and self._step_retriever:
+            print('[Executor] Skipping LLM step tracker (embedding annotation already applied)')
         steps = []
         for i, rs in enumerate(raw_steps):
             step_skills = enriched_steps[i].get('skills_used', skills_used_in_task) if i < len(enriched_steps) else skills_used_in_task
@@ -453,12 +455,33 @@ class PinchBenchExecutor:
             step = Step(index=rs['index'], observation=rs['observation'], action=rs['action'], reward=rs['reward'], done=rs['done'], skills_used=step_skills, metadata={'step_provenance': rs.get('step_provenance', step_provenance), 'step_source': rs.get('source', 'merged')})
             steps.append(step)
         if not steps:
+            score_preview = task_data.get('score', 0)
+            if not score_preview and isinstance(task_data.get('grading'), dict):
+                score_preview = task_data['grading'].get('mean', 0)
+            response_text = (task_data.get('response') or task_data.get('output') or '').strip()
+            if not response_text and transcript:
+                for row in reversed(transcript):
+                    if isinstance(row, dict):
+                        content = row.get('content') or row.get('text') or ''
+                        if isinstance(content, str) and content.strip():
+                            response_text = content.strip()[:500]
+                            break
+            if score_preview > 0 or response_text:
+                steps = [
+                    Step(
+                        index=0,
+                        observation=(task_description or task_id)[:500],
+                        action='(assistant response)',
+                        reward=float(score_preview or 0),
+                        done=True,
+                        skills_used=skills_used_in_task,
+                        metadata={'step_provenance': 'synthetic_minimal', 'step_source': 'pinchbench_transcript_fallback'},
+                    )
+                ]
+                print(f'[Executor] Synthesized minimal trajectory ({len(steps)} step) for {task_id}')
+        if not steps:
             raise TaskExecutionError(f'No trajectory steps captured for {task_id}. OpenClaw/PinchBench transcript extraction returned empty steps.')
-        score = task_data.get('score', 0)
-        if not score and 'grading' in task_data:
-            grading = task_data.get('grading', {})
-            if isinstance(grading, dict):
-                score = grading.get('mean', 0)
+        score = resolve_shell_task_score(task_id, task_data, steps, task_description or '')
         if self.artifact_dir and steps:
             annotated_path = Path(self.artifact_dir) / 'trajectories' / f'{task_id}_annotated.json'
             annotated_path.parent.mkdir(parents=True, exist_ok=True)

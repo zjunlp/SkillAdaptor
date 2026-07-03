@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Optional
-from core.provider_config import resolve_provider, validate_profile
+from core.provider_config import ProviderProfile, resolve_and_apply, describe_profile
 from .adapter_registry import get_run_callable, resolve_adapter
 from .adapter_bootstrap import bootstrap_adapter_runtime
 from .project_config import load_project_config
@@ -15,27 +15,29 @@ from runtime.harness import get_harness
 
 class PluginHost:
 
-    def __init__(self, workspace: Path, provider: str='relay-gpt41', harness: Optional[str]=None):
+    def __init__(self, workspace: Path, provider: str='auto', harness: Optional[str]=None):
         self.workspace = Path(workspace)
         self.provider = provider
         self.harness_name = harness or os.environ.get('SkillAdaptor_HARNESS', 'openclaw')
         self.state_dir = self.workspace / '.skill-adaptor'
         self._harness = get_harness(self.harness_name, project_root=self.workspace)
 
-    def prepare_agent_runtime(self, model: str='gpt-4.1') -> None:
-        self._harness.prepare_runtime(model=model)
+    def prepare_agent_runtime(
+        self,
+        model: str = 'gpt-4.1',
+        *,
+        api_key: str | None = None,
+        base_url: str | None = None,
+    ) -> None:
+        self._harness.prepare_runtime(model=model, api_key=api_key, base_url=base_url)
 
     def prepare_openclaw_runtime(self, model: str='gpt-4.1') -> None:
         self.prepare_agent_runtime(model=model)
 
-    def apply_provider(self, model: Optional[str]=None) -> None:
-        profile = resolve_provider(self.provider)
-        issues = validate_profile(profile)
-        if issues:
-            raise RuntimeError(f'Provider invalid: {issues}')
-        profile.apply_to_environ()
-        if model:
-            os.environ['SkillEvolve_MODEL'] = model
+    def apply_provider(self, model: Optional[str]=None, provider: Optional[str]=None) -> ProviderProfile:
+        prov = provider or self.provider
+        profile = resolve_and_apply(prov, model=model)
+        return profile
 
     def resolve_manifest(self, manifest_path: Optional[Path]=None, env: Optional[str]=None) -> TaskManifest:
         if manifest_path and manifest_path.exists():
@@ -59,7 +61,12 @@ class PluginHost:
             raise RuntimeError(f'Adapter {spec.name} requires {spec.requires_path_env} in environment')
         bootstrap_adapter_runtime(spec)
         os.environ.setdefault('SkillAdaptor_BENCHMARK_ENV', spec.benchmark_key)
-        self.prepare_agent_runtime(getattr(config, 'model', 'gpt-4.1'))
+        profile = getattr(config, '_llm_profile', None)
+        self.prepare_agent_runtime(
+            getattr(config, 'model', 'gpt-4.1'),
+            api_key=getattr(profile, 'api_key', None) if profile else None,
+            base_url=getattr(profile, 'base_url', None) if profile else None,
+        )
         config.agent_harness = self.harness_name
         os.environ.setdefault('SkillAdaptor_HARNESS', self.harness_name)
         if manifest:

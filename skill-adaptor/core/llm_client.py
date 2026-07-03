@@ -7,6 +7,13 @@ import re
 import urllib.request
 from typing import Optional
 
+def _first_env(*keys: str) -> str:
+    for key in keys:
+        val = os.environ.get(key, '').strip()
+        if val:
+            return val
+    return ''
+
 class SkillEvolveLLMClient:
 
     def __init__(self, api_key: Optional[str]=None, base_url: Optional[str]=None, model: Optional[str]=None, provider: Optional[str]=None):
@@ -14,14 +21,8 @@ class SkillEvolveLLMClient:
         if not self.model:
             raise ValueError('Model name must be provided via argument or SkillEvolve_MODEL environment variable')
         self._model_lower = self.model.lower()
-        if provider is None:
-            if 'gpt' in self._model_lower:
-                provider = 'openai'
-            else:
-                provider = 'generic'
-        provider_prefix = f'SkillEvolve_{provider.upper()}_'
-        self.api_key = api_key or os.environ.get(f'{provider_prefix}API_KEY', '') or os.environ.get('SkillEvolve_API_KEY', '')
-        self.base_url = base_url or os.environ.get(f'{provider_prefix}BASE_URL', '') or os.environ.get('SkillEvolve_BASE_URL', '')
+        self.api_key = api_key or _first_env('OPENAI_API_KEY', 'SkillEvolve_API_KEY')
+        self.base_url = base_url or _first_env('OPENAI_API_BASE_URL', 'SkillEvolve_BASE_URL', 'OPENAI_BASE_URL')
         if not self.api_key:
             raise ValueError('API key must be provided via argument or environment variable')
         if not self.base_url:
@@ -163,15 +164,8 @@ class SkillEvolveLLMClient:
         raise ValueError(f'No valid JSON found in response: {content[:200]}...')
 
 def create_llm_client_from_config(config) -> SkillEvolveLLMClient:
-    model = getattr(config, 'model', None) or ''
-    model_lower = model.lower()
-    if 'kimi' in model_lower or 'glm' in model_lower:
-        provider = 'glm'
-    elif 'gpt' in model_lower:
-        provider = 'gpt'
-    else:
-        provider = 'glm'
-    provider_prefix = f'SkillEvolve_{provider.upper()}_'
-    api_key = os.environ.get(f'{provider_prefix}API_KEY') or getattr(config, 'api_key', None) or ''
-    base_url = os.environ.get(f'{provider_prefix}BASE_URL') or getattr(config, 'base_url', None) or ''
-    return SkillEvolveLLMClient(api_key=api_key, base_url=base_url, model=model, provider=provider)
+    return SkillEvolveLLMClient(
+        api_key=getattr(config, 'api_key', None),
+        base_url=getattr(config, 'base_url', None),
+        model=getattr(config, 'model', None),
+    )

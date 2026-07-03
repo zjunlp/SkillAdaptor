@@ -8,7 +8,8 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 sys.path.insert(0, str(Path(__file__).parent))
-from core.config import get_llm_config_for_provider, load_config
+from core.config import load_config
+from core.provider_config import resolve_and_apply, sync_config_from_profile, describe_profile
 from core.llm_factory import build_openai_client
 from core.orchestrator import SkillEvolveOrchestrator
 from core.types import Step, Trajectory
@@ -19,7 +20,7 @@ from runtime.harness import get_harness
 def parse_args():
     parser = argparse.ArgumentParser(description='Run SkillEvolve Training-Free Skill Evolution')
     parser.add_argument('--env', choices=['webshop', 'pinchbench', 'claw-eval'], default='webshop', help='Environment to run on')
-    parser.add_argument('--provider', choices=['gpt', 'glm'], default=None, help='LLM provider (overrides environment variable)')
+    parser.add_argument('--provider', default=None, help='LLM backend: auto (default), deepseek, openrouter')
     parser.add_argument('--model', type=str, default=None, help='Specific model name (overrides default)')
     parser.add_argument('--max-iterations', type=int, default=10, help='Maximum SkillEvolve iterations')
     parser.add_argument('--training-size', type=int, default=500, help='Number of training examples')
@@ -39,8 +40,36 @@ def load_task_manifest(path: str | Path) -> dict:
             data[key] = []
     return data
 
+from core.validation_metrics import metrics_from_task_results as _metrics_from_task_results_impl
+from core.skill_body_utils import pinchbench_deliverable_banner, summarize_trajectory_actions, format_trajectory_steps_for_analysis
+
+def _deliverable_banner_text(policy_adapter, task_id: str, tasks_dir) -> str:
+    return policy_adapter.build_combined_skill_text(
+        [],
+        task_id=task_id,
+        tasks_dir=tasks_dir,
+    )
+
 def configure_pinchbench_skill_injection(executor, policy_adapter, task_ids, skill_bank, *, tasks_dir, template: str, model: str, global_prior: str='', embedding_api_key: str='', embedding_base_url: str='', embedding_model: str='', step_top_k: int=3) -> int:
     if not skill_bank and (not global_prior.strip()):
+        banner_texts: dict = {}
+        for task_id in task_ids:
+            text = _deliverable_banner_text(policy_adapter, task_id, tasks_dir)
+            if text.strip():
+                banner_texts[task_id] = text
+        if banner_texts:
+            executor.set_task_skills(banner_texts, {tid: [] for tid in banner_texts}, {})
+            from runtime.execution_binding import build_prompt_prefix_map
+
+            prefixes = build_prompt_prefix_map(
+                list(banner_texts.keys()),
+                tasks_dir=tasks_dir,
+                task_to_skill_body={},
+                allow_task_derivation=True,
+            )
+            executor.set_task_prompt_prefixes(prefixes)
+            print(f'    [Inject] deliverable banners only for {len(banner_texts)} task(s)')
+            return len(banner_texts)
         executor.clear_task_skills()
         return 0
     executor.set_skill_bank(skill_bank, top_k=step_top_k, api_key=embedding_api_key or None, base_url=embedding_base_url or None, embedding_model=embedding_model or None)
@@ -60,6 +89,11 @@ def configure_pinchbench_skill_injection(executor, policy_adapter, task_ids, ski
     for task_id in task_ids:
         skills = task_to_skills.get(task_id, [])
         if not skills and (not global_prior.strip()):
+            banner_only = _deliverable_banner_text(policy_adapter, task_id, tasks_dir)
+            if banner_only.strip():
+                skill_texts[task_id] = banner_only
+                task_skill_ids[task_id] = []
+                task_skill_objects[task_id] = {}
             continue
         skill_texts[task_id] = policy_adapter.build_combined_skill_text(
             skills,
@@ -71,11 +105,32 @@ def configure_pinchbench_skill_injection(executor, policy_adapter, task_ids, ski
         )
         task_skill_ids[task_id] = [s.id for s in skills]
         task_skill_objects[task_id] = {s.id: s for s in skills}
+    from runtime.execution_binding import build_prompt_prefix_map
+
+    bodies = {
+        tid: (task_to_skills.get(tid) or [None])[0].body if task_to_skills.get(tid) else ''
+        for tid in task_ids
+    }
+    # Prefix from skill body only — Validator Δ measures skill content, not task-prompt derivation.
+    prompt_prefixes = build_prompt_prefix_map(
+        task_ids,
+        tasks_dir=tasks_dir,
+        task_to_skill_body=bodies,
+        allow_task_derivation=False,
+    )
     executor.set_task_skills(skill_texts, task_skill_ids, task_skill_objects)
+    executor.set_task_prompt_prefixes(prompt_prefixes)
     return len(skill_texts)
 
-from core.validation_metrics import metrics_from_task_results as _metrics_from_task_results_impl
-from core.skill_body_utils import pinchbench_deliverable_banner
+def _task_result_from_trajectory(t) -> dict:
+    step_trace = format_trajectory_steps_for_analysis(t, max_steps=12, action_chars=160)
+    tail = summarize_trajectory_actions(t, max_steps=4)
+    return {
+        'success': t.success,
+        'score': t.total_reward,
+        'action_tail': tail,
+        'step_trace': step_trace,
+    }
 
 def _metrics_from_task_results(task_ids: list[str], task_results: dict) -> dict:
     return _metrics_from_task_results_impl(list(task_ids), task_results)
@@ -109,7 +164,7 @@ def evaluate_pinchbench_bank(executor, policy_adapter, validation_tasks, skill_b
         base_tr = dict(baseline_metrics.get('task_results', {}))
         revised_tr = dict(base_tr)
         for t in trajectories:
-            revised_tr[t.task_id] = {'success': t.success, 'score': t.total_reward}
+            revised_tr[t.task_id] = _task_result_from_trajectory(t)
         frozen = [t for t in tasks if t not in retrieval_hits]
         injection = list(rerun_tasks)
         merged = _metrics_from_task_results(tasks, revised_tr)
@@ -135,7 +190,7 @@ def evaluate_pinchbench_bank(executor, policy_adapter, validation_tasks, skill_b
         raise RuntimeError(f'PinchBench validation produced no trajectories for tasks={tasks!r}. Refusing silent zero metrics (check executor / gateway).')
     success_count = sum((1 for t in trajectories if t.success))
     total_score = sum((t.total_reward for t in trajectories))
-    return {'success_rate': success_count / len(trajectories), 'avg_score': total_score / len(trajectories), 'sample_size': len(trajectories), 'task_results': {t.task_id: {'success': t.success, 'score': t.total_reward} for t in trajectories}, 'scoped_tasks': tasks}
+    return {'success_rate': success_count / len(trajectories), 'avg_score': total_score / len(trajectories), 'sample_size': len(trajectories), 'task_results': {t.task_id: _task_result_from_trajectory(t) for t in trajectories}, 'scoped_tasks': tasks}
 
 def run_claw_eval(args, config):
     from core.openclaw_hygiene import ensure_gateway_running
@@ -224,26 +279,17 @@ def run_claw_eval(args, config):
     return result
 
 def setup_config(args):
+    profile = resolve_and_apply(getattr(args, 'provider', None), getattr(args, 'model', None))
     config = load_config(use_env=True)
+    sync_config_from_profile(config, profile)
     config.max_iterations = args.max_iterations
     config.output_dir = Path(args.output)
     config.results_dir = Path(args.output) / args.env
     config.skill_template = args.skill_template
-    provider = args.provider or os.environ.get('SkillEvolve_PROVIDER', '').lower()
-    provider_defaults = get_llm_config_for_provider('openai' if provider == 'gpt' else 'glm')
-    provider_prefix = 'SkillEvolve_GPT_' if provider == 'gpt' else 'SkillEvolve_GLM_'
-    provider_api_key = os.environ.get(f'{provider_prefix}API_KEY')
-    provider_base_url = os.environ.get(f'{provider_prefix}BASE_URL')
-    provider_model = os.environ.get(f'{provider_prefix}MODEL')
-    config.api_key = provider_api_key or config.api_key
-    config.base_url = provider_base_url or config.base_url or provider_defaults['base_url']
-    config.model = args.model or provider_model or config.model or provider_defaults['model']
-    config.embedding_api_key = config.embedding_api_key or os.environ.get('SkillEvolve_EMBEDDING_API_KEY', '')
-    config.embedding_base_url = config.embedding_base_url or os.environ.get('SkillEvolve_EMBEDDING_BASE_URL', '')
-    config.embedding_model = os.environ.get('SkillEvolve_EMBEDDING_MODEL', config.embedding_model)
     if not config.api_key:
-        raise ValueError(f'Missing API key. Set {provider_prefix}API_KEY or SkillEvolve_API_KEY.')
+        raise ValueError('Missing API key. Set OPENAI_API_KEY or SkillEvolve_API_KEY in secrets/.env')
     config.create_directories()
+    config._llm_profile = profile  # type: ignore[attr-defined]
     return config
 
 def build_webshop_splits(goal_count, training_size, validation_size):

@@ -3,16 +3,20 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import Optional
-from core.openclaw_hygiene import clear_bootstrap_files, discover_workspace_root, ensure_gateway_running, openclaw_agent_id
+from core.openclaw_agent_setup import prepare_openclaw_for_model
+from core.openclaw_hygiene import clear_bootstrap_files, discover_workspace_root
 EVOLVED_SKILL_DIR = 'skill-adaptor-evolved'
 
 class OpenClawHarness:
     name = 'openclaw'
 
-    def prepare_runtime(self, *, model: str) -> None:
+    def prepare_runtime(self, *, model: str, api_key: str | None = None, base_url: str | None = None) -> None:
+        from core.openclaw_hygiene import ensure_gateway_running, openclaw_agent_id
+
+        ensure_gateway_running(max_wait_s=25.0)
+        prepare_openclaw_for_model(model, api_key=api_key, base_url=base_url, fix_main_auth=True)
         slug = openclaw_agent_id(model)
         agent_id = slug
-        ensure_gateway_running(max_wait_s=25.0)
         root = discover_workspace_root(agent_id)
         for ws in root.glob('*/agent_workspace'):
             clear_bootstrap_files(ws)

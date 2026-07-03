@@ -12,7 +12,7 @@ def ensure_workspace_dirs(workspace: Path) -> None:
     for name in ('input_task', 'test_task', 'skills', '.skill-adaptor/artifacts', '.skill-adaptor/runs', '.skill-adaptor/programs'):
         (workspace / name).mkdir(parents=True, exist_ok=True)
 
-def init_workspace(workspace: Path, *, benchmark: str='pinchbench', harness: str='openclaw', provider: str='relay-gpt41', model: str='gpt-4.1', max_iterations: int=2, template: Optional[str]=None, mode: str='bundled', auto_discover_limit: int=30) -> ProjectConfig:
+def init_workspace(workspace: Path, *, benchmark: str='pinchbench', harness: str='openclaw', provider: str='auto', model: str='gpt-4.1', max_iterations: int=2, template: Optional[str]=None, mode: str='bundled', auto_discover_limit: int=30) -> ProjectConfig:
     workspace = Path(workspace)
     ensure_workspace_dirs(workspace)
     manifest_source = ManifestSource(mode=mode, auto_discover_limit=auto_discover_limit)

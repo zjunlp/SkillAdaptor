@@ -119,6 +119,56 @@ Use **`--sync-tasks`** after editing task files. Live OpenClaw runs need `PINCHB
 
 ---
 
+## LLM configuration (URL / API key / model)
+
+Configure **one chat API** + **one embedding API** in `secrets/.env`. Switch models with **`--model` only** — no env edits per model.
+
+### Recommended setup
+
+```bash
+# secrets/.env
+SkillAdaptor_PROVIDER=auto
+OPENAI_API_BASE_URL=https://your-api.example.com/v1
+OPENAI_API_KEY=sk-...
+SkillEvolve_MODEL=gpt-4.1
+
+SkillEvolve_EMBEDDING_API_KEY=sk-...
+SkillEvolve_EMBEDDING_BASE_URL=https://your-embedding-api.example.com/v1
+SkillEvolve_EMBEDDING_MODEL=text-embedding-3-small
+```
+
+```bash
+. scripts/load_secrets.ps1   # or source scripts/load_secrets.sh
+cd skill-adaptor
+
+# Same .env — only change --model:
+python run_plugin.py --workspace ../my-workspace --model gpt-4.1
+python run_plugin.py --workspace ../my-workspace --model kimi-k2.5
+python run_plugin.py --workspace ../my-workspace --model glm-5
+```
+
+At runtime the plugin writes **one canonical env set** for the whole pipeline:
+
+`SkillEvolve_*`, `OPENAI_*`, `MODEL`, `SkillAdaptor_ACTIVE_PROVIDER`.
+
+### Optional alternate chat providers
+
+Set `SkillAdaptor_PROVIDER` only when you need a different chat backend entirely:
+
+| `SkillAdaptor_PROVIDER` | Env vars |
+|-------------------------|----------|
+| `auto` (default) | `OPENAI_API_KEY` + `OPENAI_API_BASE_URL` |
+| `deepseek` | `DEEPSEEK_API_*` |
+| `openrouter` | `OPENROUTER_API_*` |
+
+Legacy names (`relay-gpt41`, `relay-kimi`, `gpt`, `glm`) map to `auto`.
+
+### Embeddings
+
+Skill–task matching always uses `SkillEvolve_EMBEDDING_*` (independent from chat URL/key).
+
+---
+
 ## Task brief format
 
 ```markdown
@@ -210,11 +260,12 @@ See [plugin/hermes/README.md](plugin/hermes/README.md) for `HERMES_HOME`, `skill
 
 | Variable | Purpose |
 |----------|---------|
-| `OPENAI_API_KEY` / `OPENAI_API_BASE_URL` | LLM (OpenAI-compatible) |
-| `SkillEvolve_API_KEY` / `SkillEvolve_BASE_URL` | Aliases for plugin |
-| `SkillEvolve_MODEL` | e.g. `gpt-4.1` |
-| `SkillEvolve_EMBEDDING_MODEL` | Default `Qwen3-Embedding-8B` |
-| `SkillAdaptor_PROVIDER` | `relay-gpt41` \| `deepseek` \| `openrouter` |
+| `SkillAdaptor_PROVIDER` | `auto` (default) \| `deepseek` \| `openrouter` |
+| `OPENAI_API_KEY` / `OPENAI_API_BASE_URL` | Chat LLM (all models via `--model`) |
+| `SkillEvolve_MODEL` | Default model when `--model` omitted |
+| `SkillEvolve_EMBEDDING_*` | Embedding API (skill retrieval) |
+| `DEEPSEEK_API_*` | Only when `SkillAdaptor_PROVIDER=deepseek` |
+| `OPENROUTER_API_*` | Only when `SkillAdaptor_PROVIDER=openrouter` |
 | `SkillAdaptor_HARNESS` | `openclaw` \| `claude-code` \| `codex` \| `hermes` |
 | `CODEX_HOME` | Codex home (default `~/.codex`) |
 | `HERMES_HOME` | Hermes home (default `~/.hermes`) |

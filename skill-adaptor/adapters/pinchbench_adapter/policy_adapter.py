@@ -4,11 +4,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, TYPE_CHECKING
-import re
+import re 
 from core.types import Skill
 from core.skill_matcher import create_matcher
 from core.skill_retrieval import SkillRetrievalGate
-from core.skill_body_utils import pinchbench_deliverable_banner
+from core.skill_body_utils import pinchbench_deliverable_banner, resolve_immediate_shell_action, task_mentions_command_deliverable
 from .constraint_provider import PinchBenchConstraintProvider
 if TYPE_CHECKING:
     from runtime.retrieval_index import RetrievalIndex
@@ -83,7 +83,12 @@ class PinchBenchPolicyAdapter:
         if 'kimi' in model_lower:
             model_rules = '## MODEL-SPECIFIC RULES (Kimi)\n- Follow strict step ordering; avoid open-ended retries\n- Max exec calls: 5 unless task explicitly requires more\n\n'
         elif 'glm' in model_lower:
-            model_rules = '## MODEL-SPECIFIC RULES (GLM)\n- Keep actions concise and deterministic\n- Validate output format before final response\n\n'
+            model_rules = (
+                '## MODEL-SPECIFIC RULES (GLM)\n'
+                '- PinchBench runs on **bash/sh** (Linux). **Never** use PowerShell (`Get-ChildItem`, `Select-String`, `pwsh`).\n'
+                '- When a canonical command is given below, copy it **verbatim** into the deliverable file.\n'
+                '- Keep actions concise; first tool call must implement the deliverable.\n\n'
+            )
         elif 'gpt' in model_lower or 'openai' in model_lower:
             model_rules = '## MODEL-SPECIFIC RULES (GPT)\n- Use structured reasoning with clear step-by-step approach\n- Prefer explicit over implicit; document assumptions\n- Validate intermediate results before proceeding\n\n'
         if template == 'standard':
@@ -127,21 +132,54 @@ class PinchBenchPolicyAdapter:
         if global_prior and global_prior.strip():
             prior_block = f'## Global Prior (π)\n\n{global_prior.strip()}\n\n---\n\n'
         banner = ''
+        task_md = ''
         if task_id and tasks_dir is not None:
-            banner = pinchbench_deliverable_banner(task_id, self._read_task_md(task_id, tasks_dir))
-        if not skills and (not prior_block):
+            task_md = self._read_task_md(task_id, tasks_dir)
+            banner = pinchbench_deliverable_banner(task_id, task_md)
+        immediate_block = ''
+        resolved_action = ''
+        if task_md and task_mentions_command_deliverable(task_md):
+            for skill in skills:
+                resolved_action = resolve_immediate_shell_action(skill.body, task_md)
+                if resolved_action:
+                    break
+            if not resolved_action:
+                resolved_action = resolve_immediate_shell_action('', task_md)
+        if resolved_action:
+            immediate_block = (
+                '## STOP — WRITE THIS COMMAND FIRST\n'
+                'Environment: **bash/sh only** (not PowerShell).\n'
+                'Your **first** tool action must `write` path=`command.txt` (relative path in workspace root, '
+                'never `C:\\\\...` absolute paths) with **only** this single line '
+                '(plain text, one line, no markdown fence, no trailing newline):\n\n'
+                f'```text\n{resolved_action}\n```\n\n'
+                'Copy the line inside the fence **exactly**. Do not substitute `find`-only, PowerShell, or placeholders.\n\n'
+                '## IMMEDIATE ACTION (execute first)\n'
+                f'write path=command.txt content={resolved_action}\n\n---\n\n'
+            )
+        if not skills and (not prior_block) and (not banner):
             return ''
         skill_sections = []
         for i, skill in enumerate(skills, 1):
             skill_text = self.build_skill_text(skill, template=template, model=model)
             skill_sections.append(f'## Skill {i}: {skill.title}\n\n{skill_text}')
-        combined = banner + prior_block + '# SKILLS\n\n'
+        combined = banner + immediate_block + prior_block + '# SKILLS\n\n'
         if skill_sections:
             combined += 'Use the following skills to complete the task:\n\n---\n\n'
             combined += '\n\n'.join(skill_sections[:3])
         elif prior_block:
             combined += 'Apply the global prior above when executing this task.\n'
-        max_chars = 4000
+        elif banner:
+            combined += 'Follow the mandatory deliverable constraints above; do not invent alternate scenarios.\n'
+        if combined and not combined.lstrip().startswith('---'):
+            combined = (
+                '---\n'
+                'name: skill-adaptor-evolved\n'
+                'description: PinchBench evolved skill — follow STOP / IMMEDIATE ACTION blocks first.\n'
+                '---\n\n'
+                + combined
+            )
+        max_chars = 5000
         if len(combined) > max_chars:
             combined = combined[:max_chars] + '\n\n<!-- truncated for agent context -->\n'
         return combined

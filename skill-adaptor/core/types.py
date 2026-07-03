@@ -117,13 +117,16 @@ class LocalizedFault:
     skills_at_fault: List[str] = field(default_factory=list)
     improvement_principle: str = ''
     fault_chain: List[int] = field(default_factory=list)
+    deliverable_targets: List[str] = field(default_factory=list)
+    wrong_artifact_note: str = ''
+    rubric_gap: str = ''
 
     def to_dict(self) -> Dict[str, Any]:
-        return {'task_id': self.task_id, 'step_index': self.step_index, 'fault_type': self.fault_type.value, 'observation': self.observation, 'wrong_action': self.wrong_action, 'skills_at_fault': self.skills_at_fault, 'improvement_principle': self.improvement_principle, 'fault_chain': self.fault_chain}
+        return {'task_id': self.task_id, 'step_index': self.step_index, 'fault_type': self.fault_type.value, 'observation': self.observation, 'wrong_action': self.wrong_action, 'skills_at_fault': self.skills_at_fault, 'improvement_principle': self.improvement_principle, 'fault_chain': self.fault_chain, 'deliverable_targets': list(self.deliverable_targets), 'wrong_artifact_note': self.wrong_artifact_note, 'rubric_gap': self.rubric_gap}
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> LocalizedFault:
-        return cls(task_id=data['task_id'], step_index=data['step_index'], fault_type=FaultType(data.get('fault_type', 'unknown')), observation=data['observation'], wrong_action=data['wrong_action'], skills_at_fault=data.get('skills_at_fault', []), improvement_principle=data.get('improvement_principle', ''), fault_chain=data.get('fault_chain', []))
+        return cls(task_id=data['task_id'], step_index=data['step_index'], fault_type=FaultType(data.get('fault_type', 'unknown')), observation=data['observation'], wrong_action=data['wrong_action'], skills_at_fault=data.get('skills_at_fault', []), improvement_principle=data.get('improvement_principle', ''), fault_chain=data.get('fault_chain', []), deliverable_targets=list(data.get('deliverable_targets') or []), wrong_artifact_note=str(data.get('wrong_artifact_note') or ''), rubric_gap=str(data.get('rubric_gap') or ''))
 
 @dataclass
 class SkillAttribution:

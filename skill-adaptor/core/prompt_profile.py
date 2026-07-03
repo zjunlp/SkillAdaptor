@@ -32,11 +32,30 @@ class PromptProfile:
 
     def model_specific_block(self, stage: str) -> str:
         model = self.model_name.lower()
+        stage_l = stage.lower()
+        deliverable_hint = ''
+        if stage_l in {'generator', 'reviser'}:
+            deliverable_hint = (
+                '\n- When the task prompt names an output file (`command.txt`, `recovery.sh`, etc.), '
+                'the procedure MUST name that file and forbid alternate scenarios.'
+            )
         if 'kimi' in model:
-            return '## MODEL PROFILE (Kimi)\n- Use explicit numbered steps with clear termination\n- Avoid open-ended prompts; provide bounded alternatives\n- Structure output with clear section delimiters'
+            return (
+                '## MODEL PROFILE (Kimi)\n'
+                '- Use explicit numbered steps with clear termination\n'
+                '- Avoid open-ended prompts; provide bounded alternatives\n'
+                '- Structure output with clear section delimiters'
+                f'{deliverable_hint}'
+            )
         if 'glm' in model:
-            return '## MODEL PROFILE (GLM)\n- Lead with schema definition, then examples\n- Emphasize validation before final output\n- Use compact, information-dense phrasing'
-        return f'## MODEL PROFILE\n- Use conservative, verifiable instructions.'
+            return (
+                '## MODEL PROFILE (GLM)\n'
+                '- Lead with schema definition, then examples\n'
+                '- Emphasize validation before final output\n'
+                '- Use compact, information-dense phrasing'
+                f'{deliverable_hint}'
+            )
+        return f'## MODEL PROFILE\n- Use conservative, verifiable instructions.{deliverable_hint}'
 
     def format_trajectory(self, steps: List[Dict[str, Any]], fault_idx: Optional[int]=None, window: int=3) -> str:
         if not steps:

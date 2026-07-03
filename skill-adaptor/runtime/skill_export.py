@@ -173,9 +173,35 @@ def sync_workspace_skills_to_codex(workspace_skills_dir: Path, project_root: Pat
         count += 1
     return count
 
-def list_adopted_skill_ids(skill_bank_path: Path) -> list[str]:
+def list_skill_bank_ids(skill_bank_path: Path) -> list[str]:
+    """All skill ids present in the final bank file (includes seeds loaded via --skills)."""
     if not skill_bank_path.exists():
         return []
     data = json.loads(skill_bank_path.read_text(encoding='utf-8'))
     skills = data.get('skills') or {}
     return sorted(skills.keys())
+
+
+def list_adopted_skill_ids(skill_bank_path: Path) -> list[str]:
+    """Backward-compatible alias for :func:`list_skill_bank_ids`."""
+    return list_skill_bank_ids(skill_bank_path)
+
+
+def collect_newly_adopted_skill_ids(report: dict) -> list[str]:
+    """Skill ids accepted by Validator during this run (from orchestrator report history)."""
+    if not report:
+        return []
+    direct = report.get('newly_adopted_skill_ids')
+    if isinstance(direct, list):
+        return [str(s) for s in direct if s]
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for row in report.get('history') or []:
+        if not isinstance(row, dict):
+            continue
+        for sid in row.get('accepted') or []:
+            sid_s = str(sid)
+            if sid_s and sid_s not in seen:
+                seen.add(sid_s)
+                ordered.append(sid_s)
+    return ordered

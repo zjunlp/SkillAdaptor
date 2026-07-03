@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 from run_skillevolve import load_task_manifest, setup_config
+from core.provider_config import describe_profile
 from runtime.plugin_host import PluginHost
 from runtime.project_config import load_project_config
 from runtime.task_loader import TaskManifest, write_manifest
@@ -28,7 +29,7 @@ def parse_init_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument('--workspace', type=str, default=str(_default_workspace()))
     parser.add_argument('--benchmark', default='pinchbench', choices=['pinchbench', 'claw-eval', 'webshop'])
     parser.add_argument('--harness', default='openclaw', choices=['openclaw', 'claude-code', 'codex', 'hermes'])
-    parser.add_argument('--provider', default='relay-gpt41')
+    parser.add_argument('--provider', default='auto', help='LLM backend: auto (default), deepseek, openrouter')
     parser.add_argument('--model', default='gpt-4.1')
     parser.add_argument('--max-iterations', type=int, default=2)
     parser.add_argument('--template', default=None, help='Optional bundled manifest alias (local repro); default init uses folders mode')
@@ -42,7 +43,7 @@ def parse_run_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument('--manifest', type=str, default=None)
     parser.add_argument('--env', choices=['pinchbench', 'claw-eval', 'webshop', 'auto'], default='auto')
     parser.add_argument('--model', type=str, default=None)
-    parser.add_argument('--provider', choices=['relay-gpt41', 'deepseek', 'openrouter', 'custom', 'gpt', 'glm'], default=None)
+    parser.add_argument('--provider', default=None, help='LLM backend: auto (default), deepseek, openrouter')
     parser.add_argument('--max-iterations', type=int, default=None)
     parser.add_argument('--output', type=str, default=None)
     parser.add_argument('--skills', type=str, default=None)
@@ -74,9 +75,10 @@ def write_run_record(workspace: Path, manifest: TaskManifest, result: dict, *, b
     state_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     out = state_dir / f'run_{stamp}.json'
-    from runtime.skill_export import list_adopted_skill_ids
-    adopted_ids = list_adopted_skill_ids(bank_path)
-    payload = {'timestamp': stamp, 'manifest': manifest.to_dict(), 'result_summary': {'iterations': result.get('iterations'), 'final_skill_count': result.get('final_skill_count'), 'adopted_skill_ids': adopted_ids, 'held_out_test': result.get('held_out_test')}}
+    from runtime.skill_export import collect_newly_adopted_skill_ids, list_skill_bank_ids
+    newly_adopted = collect_newly_adopted_skill_ids(result)
+    bank_ids = list_skill_bank_ids(bank_path)
+    payload = {'timestamp': stamp, 'manifest': manifest.to_dict(), 'result_summary': {'iterations': result.get('iterations'), 'final_skill_count': result.get('final_skill_count'), 'newly_adopted_skill_ids': newly_adopted, 'skill_bank_ids': bank_ids, 'held_out_test': result.get('held_out_test')}}
     out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
     return out
 
@@ -137,9 +139,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             print(f'Plugin run failed: {exc}')
             return 1
     project = load_project_config(workspace)
-    provider_name = args.provider or (project.provider if project else None) or os.environ.get('SkillAdaptor_PROVIDER', 'relay-gpt41')
-    if provider_name in {'gpt', 'glm'}:
-        provider_name = 'relay-gpt41'
+    provider_name = args.provider or (project.provider if project else None) or os.environ.get('SkillAdaptor_PROVIDER', 'auto')
     harness = args.harness or (project.harness if project else None)
     host = PluginHost(workspace, provider=provider_name, harness=harness)
     try:
@@ -195,6 +195,12 @@ def cmd_run(args: argparse.Namespace) -> int:
         print('Hint: use init --mode auto_discover for disjoint splits, or probe_mode=true for quick smoke')
         return 1
     if args.dry_run:
+        from runtime.adapter_registry import resolve_adapter
+        spec = resolve_adapter(env)
+        if spec.requires_path_env and not os.environ.get(spec.requires_path_env):
+            print(f'[Dry-run] Live run requires {spec.requires_path_env} (optional benchmark executor).')
+            print('[Dry-run] Workspace-only: add trajectories via --input-trajectories or use --harness claude-code for custom tasks.')
+        print('[Dry-run] Manifest OK — evolution skipped.')
         return 0
     _maybe_reexec_for_benchmark(env)
     cleanup_stale_locks(workspace)
@@ -212,15 +218,12 @@ def cmd_run(args: argparse.Namespace) -> int:
         return 2
 
 def _run_evolution_locked(args: argparse.Namespace, workspace: Path, project, host: PluginHost, manifest: TaskManifest, env: str, max_iter: int, bridge) -> int:
-    provider_name = args.provider or (project.provider if project else None) or os.environ.get('SkillAdaptor_PROVIDER', 'relay-gpt41')
-    if provider_name in {'gpt', 'glm'}:
-        provider_name = 'relay-gpt41'
+    provider_name = args.provider or (project.provider if project else None) or os.environ.get('SkillAdaptor_PROVIDER', 'auto')
     try:
-        host.apply_provider(bridge.model)
-        print(f"[Provider] {provider_name} model={bridge.model or os.environ.get('SkillEvolve_MODEL', 'default')}")
         config = setup_config(bridge)
-        if bridge.model:
-            config.model = bridge.model
+        profile = getattr(config, '_llm_profile', None)
+        if profile is not None:
+            print(f'[Provider] {describe_profile(profile)}')
     except Exception as exc:
         print(f'Configuration error: {exc}')
         return 1
@@ -233,6 +236,9 @@ def _run_evolution_locked(args: argparse.Namespace, workspace: Path, project, ho
     config.agent_harness = host.harness_name
     config.program_git_branches = args.program_git
     config.direct_skill_write = True
+    if manifest.probe_mode:
+        config.min_sample_size = 1
+        print('[Plugin] probe_mode: min_sample_size=1 for adoption gate')
     config.create_directories()
     skills_out = workspace / 'skills'
     skills_out.mkdir(parents=True, exist_ok=True)
@@ -240,14 +246,18 @@ def _run_evolution_locked(args: argparse.Namespace, workspace: Path, project, ho
     try:
         result = host.run_evolution(bridge, config, env=env, manifest=manifest)
     except Exception as exc:
+        import traceback
         print(f'Plugin run failed: {exc}')
+        if os.environ.get('SKILLADAPTOR_DEBUG', '').strip().lower() in ('1', 'true', 'yes'):
+            traceback.print_exc()
         return 1
     record = write_run_record(workspace, manifest, result, bank_path=config.output_dir / 'skill_bank_final.json')
     print(f'\n[Plugin] Run record: {record}')
     bank_path = config.output_dir / 'skill_bank_final.json'
-    from runtime.skill_export import export_skills_to_workspace, list_adopted_skill_ids, sync_workspace_skills_to_claude, sync_workspace_skills_to_codex, sync_workspace_skills_to_hermes
+    from runtime.skill_export import collect_newly_adopted_skill_ids, export_skills_to_workspace, list_skill_bank_ids, sync_workspace_skills_to_claude, sync_workspace_skills_to_codex, sync_workspace_skills_to_hermes
     exported = export_skills_to_workspace(bank_path, skills_out)
-    adopted_ids = list_adopted_skill_ids(bank_path)
+    newly_adopted = collect_newly_adopted_skill_ids(result)
+    bank_ids = list_skill_bank_ids(bank_path)
     print(f'[Plugin] Exported {exported} skill(s) to {skills_out}')
     if host.harness_name in ('claude-code', 'claude'):
         n_claude = sync_workspace_skills_to_claude(skills_out, workspace)
@@ -263,10 +273,12 @@ def _run_evolution_locked(args: argparse.Namespace, workspace: Path, project, ho
         if n_hermes:
             hermes_home = os.environ.get('HERMES_HOME', str(Path.home() / '.hermes'))
             print(f"[Plugin] Synced {n_hermes} skill(s) to {hermes_home}/skills/skill-adaptor and {workspace / '.hermes' / 'skills' / 'skill-adaptor'}")
-    if adopted_ids:
-        print(f"[Plugin] Adopted: {', '.join(adopted_ids)}")
+    if newly_adopted:
+        print(f"[Plugin] Newly adopted this run: {', '.join(newly_adopted)}")
+    elif bank_ids:
+        print(f'[Plugin] No new adoptions ({len(bank_ids)} skill(s) in final bank; seeds unchanged or all proposals rejected)')
     from runtime.skillnet_bridge import post_adopt_hooks
-    sn = post_adopt_hooks(workspace, adopted_ids)
+    sn = post_adopt_hooks(workspace, newly_adopted)
     if sn.get('evaluated'):
         print(f"[Plugin] SkillNet evaluated {len(sn['evaluated'])} skill(s) (SKILLNET_POST_EVAL)")
     if sn.get('analyze') is not None:
@@ -277,8 +289,8 @@ def _run_evolution_locked(args: argparse.Namespace, workspace: Path, project, ho
         print(f"[Plugin] {sn['note']}")
     if sn.get('report_path'):
         print(f"[Plugin] SkillNet report: {sn['report_path']}")
-    if result.get('final_skill_count', 0) == 0:
-        print('[Plugin] No skills adopted this run (see rejection_history.json and run log).')
+    if not newly_adopted:
+        print('[Plugin] No skills adopted this run (see rejection_history.json and evolution_audit.jsonl).')
     return 0
 
 def main() -> int:

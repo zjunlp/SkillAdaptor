@@ -5,6 +5,7 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 from core.types import Skill
+from core.llm_params import chat_temperature
 
 class StepSkillTracker:
 
@@ -49,7 +50,7 @@ class StepSkillTracker:
         if self.llm_client is None:
             raise RuntimeError('LLM client not available for skill tracking')
         try:
-            response = self.llm_client.chat.completions.create(model=self.model, messages=[{'role': 'system', 'content': 'You are a precise skill attribution analyzer. Return only valid JSON.'}, {'role': 'user', 'content': prompt}], temperature=0.1, max_tokens=256)
+            response = self.llm_client.chat.completions.create(model=self.model, messages=[{'role': 'system', 'content': 'You are a precise skill attribution analyzer. Return only valid JSON.'}, {'role': 'user', 'content': prompt}], temperature=chat_temperature(self.model, 0.1), max_tokens=256)
             return response.choices[0].message.content
         except Exception as e:
             raise RuntimeError(f'LLM call failed for skill tracking: {e}') from e
