@@ -66,7 +66,7 @@ class PinchBenchExecutor:
             self._skill_bank_dict = {}
             return
         matcher = SemanticSkillMatcher(
-            model_name=embedding_model or first_env(EMBEDDING_MODEL_VAR, 'SkillEvolve_EMBEDDING_MODEL'),
+            model_name=embedding_model or first_env(EMBEDDING_MODEL_VAR),
             api_key=api_key or first_env(*embedding_key_envs()),
             base_url=base_url or first_env(*embedding_url_envs()),
             similarity_threshold=0.35,

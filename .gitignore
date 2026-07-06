@@ -92,7 +92,7 @@ plugin/workspace_test_init/
 **/*_annotated.json
 **/rejection_history.json
 **/SkillAdaptor_report.json
-**/SkillEvolve_report.json
+**/SkillAdaptor_report.json
 **/skill_bank*.json
 **/active_manifest.json
 **/global_prior.txt
@@ -129,9 +129,9 @@ Thumbs.db
 SkillAdaptor_output/
 SkillAdaptor_artifacts/
 SkillAdaptor_results/
-SkillEvolve_output/
-SkillEvolve_artifacts/
-SkillEvolve_results/
+SkillAdaptor_output/
+SkillAdaptor_artifacts/
+SkillAdaptor_results/
 *.log
 *.lock
 run.lock

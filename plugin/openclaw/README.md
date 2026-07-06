@@ -7,7 +7,7 @@ OpenClaw provides the UI; this repo provides the Python evolution engine under `
 **TypeScript plugin** (UI):
 
 ```powershell
-openclaw plugins install <ABS_PATH>/SkillEvolve-openclaw/src/skill-evolve-ts
+openclaw plugins install <ABS_PATH>/SkillAdaptor-openclaw/src/skill-adaptor-ts
 openclaw plugins enable skill-adaptor
 ```
 
@@ -15,7 +15,7 @@ openclaw plugins enable skill-adaptor
 
 ```text
 skill-adaptor/plugin/python/run_openclaw_evolve.py
-  → SkillEvolve-openclaw/src/skill-evolve-ts/python/run_openclaw_evolve.py
+  → SkillAdaptor-openclaw/src/skill-adaptor-ts/python/run_openclaw_evolve.py
 ```
 
 The bridge calls `run_plugin.py` and prints `EVOLVE_OUTPUT_FILE=...` for the UI parser.

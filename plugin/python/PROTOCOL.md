@@ -1,6 +1,6 @@
 # TS ↔ Python bridge protocol
 
-Used by `SkillEvolve-openclaw` `python-bridge.ts` and `plugin/python/run_openclaw_evolve.py`.
+Used by the OpenClaw TS plugin `python-bridge.ts` and `plugin/python/run_openclaw_evolve.py`.
 
 ## Invocation
 

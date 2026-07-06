@@ -24,10 +24,10 @@ def resolve_embedding_model(explicit: str | None = None) -> str:
 def resolve_openrouter_embedding_model() -> str:
     """Embedding model for OpenRouter profile when no separate embedding API is configured."""
     import os
-    explicit = first_env(EMBEDDING_MODEL_VAR, 'SkillEvolve_EMBEDDING_MODEL')
+    explicit = first_env(EMBEDDING_MODEL_VAR)
     if explicit:
         return explicit
-    if os.environ.get(EMBEDDING_BASE_URL_VAR, '').strip() or os.environ.get('SkillEvolve_EMBEDDING_BASE_URL', '').strip():
+    if os.environ.get(EMBEDDING_BASE_URL_VAR, '').strip():
         return PRIMARY_EMBEDDING_MODEL
     return OPENROUTER_EMBEDDING_FALLBACK
 

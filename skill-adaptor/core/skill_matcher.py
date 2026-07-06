@@ -57,7 +57,7 @@ class SemanticSkillMatcher:
                 f'Embedding API not configured. Set {EMBEDDING_API_KEY_VAR} and {EMBEDDING_BASE_URL_VAR}, or pass embedding_client.'
             )
         max_retries = int(
-            first_env('SkillAdaptor_MAX_RETRIES', 'SkillEvolve_MAX_RETRIES', 'MAX_RETRIES') or '5'
+            first_env('SkillAdaptor_MAX_RETRIES', 'MAX_RETRIES') or '5'
         )
         try:
             return call_with_retries(lambda: self._embed_via_api(texts), max_retries=max_retries, context=f'Embedding API (model={self.model_name!r})')

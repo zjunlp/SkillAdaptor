@@ -61,10 +61,7 @@ class SkillAdaptorConfig:
     def from_env(cls, prefix: str='SkillAdaptor_') -> SkillAdaptorConfig:
 
         def get_env(key: str, default: Any = None) -> Any:
-            val = os.environ.get(f'{prefix}{key}')
-            if val is not None and str(val).strip() != '':
-                return val
-            return os.environ.get(f'SkillEvolve_{key}', default)
+            return os.environ.get(f'{prefix}{key}', default)
 
         def get_env_int(key: str, default: int) -> int:
             val = get_env(key)

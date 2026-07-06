@@ -50,9 +50,9 @@ htmlcov/
 SkillAdaptor_output/
 SkillAdaptor_artifacts/
 SkillAdaptor_results/
-SkillEvolve_output/
-SkillEvolve_artifacts/
-SkillEvolve_results/
+SkillAdaptor_output/
+SkillAdaptor_artifacts/
+SkillAdaptor_results/
 *.log
 *.json.bak
 

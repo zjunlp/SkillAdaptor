@@ -199,7 +199,7 @@ def resolve_provider(name: str = 'auto', *, model: Optional[str] = None) -> Prov
 
 def resolve_and_apply(provider: Optional[str] = None, model: Optional[str] = None) -> ProviderProfile:
     prov = normalize_provider_name(
-        provider or os.environ.get('SkillAdaptor_PROVIDER') or os.environ.get('SkillEvolve_PROVIDER') or 'auto'
+        provider or os.environ.get('SkillAdaptor_PROVIDER') or 'auto'
     )
     profile = resolve_provider(prov, model=model)
     issues = validate_profile(profile)
