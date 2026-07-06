@@ -1,9 +1,4 @@
-"""
-Harness execution binding — EvoSkill-style separation of evolution core vs agent-facing inject.
-
-Maps evolved skills + task briefs → skill markdown + optional user-message prefix env vars.
-Benchmark adapters (PinchBench, claw-eval) read the env at agent launch time.
-"""
+"""Harness execution binding — maps evolved skills to agent-facing inject."""
 
 from __future__ import annotations
 
@@ -11,7 +6,6 @@ import os
 from pathlib import Path
 from typing import Dict, Mapping, Optional
 
-# Env var read by PinchBench/claw-eval OpenClaw runners (lib_agent._effective_task_prompt).
 PROMPT_PREFIX_ENV = 'PINCHBENCH_PROMPT_PREFIX'
 
 
@@ -29,13 +23,6 @@ def shell_prompt_prefix_for_task(
     task_md: str = '',
     allow_task_derivation: bool = False,
 ) -> str:
-    """
-    Build user-message prefix for shell command.txt tasks.
-
-    allow_task_derivation=False (default): prefix only when skill body encodes a command
-    (Validator A/B measures skill content, not task prompt alone).
-    allow_task_derivation=True: also derive from task markdown (smoke / cold-start).
-    """
     from core.skill_body_utils import (
         build_shell_prompt_prefix,
         extract_immediate_shell_action,
@@ -58,7 +45,6 @@ def build_prompt_prefix_map(
     task_to_skill_body: Mapping[str, str],
     allow_task_derivation: bool = False,
 ) -> Dict[str, str]:
-    """Per-task prompt prefixes for executor harness (empty when not applicable)."""
     root = Path(tasks_dir)
     out: Dict[str, str] = {}
     for task_id in task_ids:
@@ -74,7 +60,6 @@ def build_prompt_prefix_map(
 
 
 def apply_prompt_prefix(env: Dict[str, str], task_id: str, prefixes: Mapping[str, str]) -> Dict[str, str]:
-    """Return env copy with PROMPT_PREFIX_ENV set or cleared for this task."""
     merged = dict(env)
     prefix = (prefixes.get(task_id) or '').strip()
     if prefix:
@@ -85,7 +70,6 @@ def apply_prompt_prefix(env: Dict[str, str], task_id: str, prefixes: Mapping[str
 
 
 def inject_root_for_run(*, workspace: Path, benchmark_root: Optional[Path] = None) -> Path:
-    """Where harness writes SKILL.md — workspace for generic plugin, benchmark dir for PinchBench."""
     if benchmark_root is not None and Path(benchmark_root).exists():
         return Path(benchmark_root)
     return Path(workspace)

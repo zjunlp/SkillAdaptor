@@ -10,7 +10,13 @@ from typing import Optional, Protocol, runtime_checkable
 class AgentHarness(Protocol):
     name: str
 
-    def prepare_runtime(self, *, model: str) -> None: ...
+    def prepare_runtime(
+        self,
+        *,
+        model: str,
+        api_key: str | None = None,
+        base_url: str | None = None,
+    ) -> None: ...
 
     def inject_skill_text(
         self,

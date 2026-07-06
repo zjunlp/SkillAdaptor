@@ -111,7 +111,6 @@ def configure_pinchbench_skill_injection(executor, policy_adapter, task_ids, ski
         tid: (task_to_skills.get(tid) or [None])[0].body if task_to_skills.get(tid) else ''
         for tid in task_ids
     }
-    # Prefix from skill body only — Validator Δ measures skill content, not task-prompt derivation.
     prompt_prefixes = build_prompt_prefix_map(
         task_ids,
         tasks_dir=tasks_dir,

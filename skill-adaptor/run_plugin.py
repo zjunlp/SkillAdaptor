@@ -238,6 +238,7 @@ def _run_evolution_locked(args: argparse.Namespace, workspace: Path, project, ho
     config.direct_skill_write = True
     if manifest.probe_mode:
         config.min_sample_size = 1
+        os.environ.setdefault('ALLOW_SYNTHETIC_TRAJECTORY', '1')
         print('[Plugin] probe_mode: min_sample_size=1 for adoption gate')
     config.create_directories()
     skills_out = workspace / 'skills'

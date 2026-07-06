@@ -11,7 +11,6 @@ from core.embedding_config import PRIMARY_EMBEDDING_MODEL
 OPENROUTER_DEFAULT_BASE = 'https://openrouter.ai/api/v1'
 DEEPSEEK_OPENAI_COMPAT_BASE = 'https://api.deepseek.com/v1'
 
-# Legacy provider names → canonical
 _PROVIDER_ALIASES: dict[str, str] = {
     '': 'auto',
     'auto': 'auto',
@@ -43,7 +42,6 @@ class ProviderProfile:
     embedding_model: str = PRIMARY_EMBEDDING_MODEL
 
     def apply_to_environ(self) -> None:
-        """Write canonical env vars for evolution + PinchBench executor."""
         os.environ['SkillAdaptor_LLM_APPLIED'] = '1'
         os.environ['SkillAdaptor_ACTIVE_PROVIDER'] = self.name
         os.environ['SkillEvolve_API_KEY'] = self.api_key
@@ -89,7 +87,6 @@ def _embedding_credentials() -> tuple[str, str, str]:
 
 
 def _llm_credentials() -> tuple[str, str]:
-    """Single chat LLM endpoint — same URL/key for gpt / kimi / glm / deepseek model ids."""
     return (
         _first_non_empty(os.environ.get('OPENAI_API_KEY'), os.environ.get('SkillEvolve_API_KEY')),
         _first_non_empty(os.environ.get('OPENAI_API_BASE_URL'), os.environ.get('SkillEvolve_BASE_URL')),
@@ -165,7 +162,6 @@ def _profile_custom(model: Optional[str]) -> ProviderProfile:
 
 
 def resolve_provider(name: str = 'auto', *, model: Optional[str] = None) -> ProviderProfile:
-    """Resolve credentials. Default: one OPENAI_API_* endpoint; switch models via --model only."""
     canonical = normalize_provider_name(name)
     model = _first_non_empty(model, os.environ.get('SkillEvolve_MODEL'), os.environ.get('SkillAdaptor_MODEL'))
 
@@ -207,8 +203,6 @@ def validate_profile(profile: ProviderProfile) -> List[str]:
         issues.append(f'{profile.name}: missing base URL (set OPENAI_API_BASE_URL)')
     if not profile.model:
         issues.append(f'{profile.name}: missing model id')
-    if profile.name == 'openrouter' and profile.api_key and not profile.api_key.startswith('sk-or-'):
-        issues.append('openrouter: API key should start with sk-or-v1-')
     return issues
 
 

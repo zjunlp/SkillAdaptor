@@ -60,7 +60,7 @@ class HermesHarness:
             / 'SKILL.md'
         )
 
-    def prepare_runtime(self, *, model: str) -> None:
+    def prepare_runtime(self, *, model: str, api_key: str | None = None, base_url: str | None = None) -> None:
         (_hermes_home() / 'skills' / HERMES_SKILL_CATEGORY).mkdir(parents=True, exist_ok=True)
         (
             self.project_root

@@ -15,7 +15,7 @@ class ClaudeCodeHarness:
     def _workspace_skills_dir(self) -> Path:
         return self.project_root / 'skills'
 
-    def prepare_runtime(self, *, model: str) -> None:
+    def prepare_runtime(self, *, model: str, api_key: str | None = None, base_url: str | None = None) -> None:
         skills_root = self.project_root / '.claude' / 'skills'
         skills_root.mkdir(parents=True, exist_ok=True)
         sync_workspace_skills_to_claude(self._workspace_skills_dir(), self.project_root)

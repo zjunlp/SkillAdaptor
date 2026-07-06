@@ -198,61 +198,6 @@ class SkillEvolveOrchestrator:
             )
         return fault
 
-    def _process_failures(self, failures: List[Trajectory]) -> Tuple[List[Skill], List[Skill]]:
-        revised_skills: List[Skill] = []
-        new_skills: List[Skill] = []
-        print('\n[3] Localizing faults and attributing...')
-        self._iteration_principles = []
-        all_faults: List[Tuple[Trajectory, LocalizedFault]] = []
-        for trajectory in failures:
-            fault = self.localizer.localize(trajectory)
-            if fault is not None:
-                fault = self._finalize_localized_fault(trajectory, fault)
-                all_faults.append((trajectory, fault))
-        unique_faults = self._deduplicate_faults_by_embedding(all_faults)
-        print(f'    Unique fault patterns: {len(unique_faults)}/{len(all_faults)}')
-        for i, (trajectory, fault) in enumerate(unique_faults):
-            print(f'    Processing fault {i + 1}/{len(unique_faults)}...')
-            print(f'      Fault at step {fault.step_index + 1}: {fault.fault_type.value}')
-            if fault.fault_chain:
-                print(f'      Fault chain: {fault.fault_chain}')
-            if fault.improvement_principle and fault.fault_type != FaultType.REASONING_WRONG:
-                self._iteration_principles.append(fault.improvement_principle.strip())
-            if fault.fault_type == FaultType.REASONING_WRONG:
-                print(f'      -> REASONING_WRONG: Recording only, skipping skill modification')
-                self._record_reasoning_fault(fault)
-                continue
-            skill_dict = {s.id: s for s in self.skill_bank.list_skills()}
-            reject_h = self._get_rejection_summaries_for_prompt()
-            attributions = self.linker.attribute(fault, skill_dict, self.llm_client, skill_matcher=self._skill_matcher)
-            if attributions:
-                print(f'      Attributed to {len(attributions)} skills')
-                high_conf = self.linker.attributions_for_repair(
-                    fault, attributions, skill_dict, self.config.attribution_weight_threshold,
-                )
-                for attr in high_conf:
-                    skill = skill_dict.get(attr.skill_id)
-                    if skill:
-                        revised = self.reviser.revise(
-                        skill, fault, attr, rejection_summaries=reject_h, trajectory=trajectory,
-                    )
-                        if revised:
-                            if self._is_similar_to_rejected(revised):
-                                print(f'      -> Rejected (similar to previous rejected proposal)')
-                                continue
-                            revised_skills.append(revised)
-                            print(f'      Revised: {revised.id}')
-            else:
-                print('      No attribution - generating new skill')
-                new_skill = self.generator.generate(trajectory, fault, skill_dict, rejection_summaries=reject_h)
-                if new_skill:
-                    if self._is_similar_to_rejected(new_skill):
-                        print(f'      -> Rejected (similar to previous rejected proposal)')
-                        continue
-                    new_skills.append(new_skill)
-                    print(f'      Generated: {new_skill.id}')
-                    self._on_skill_generated(new_skill)
-        return (revised_skills, new_skills)
     FAULT_CHAIN_MAX_ATTEMPTS = 3
 
     def _fault_at_chain_step(self, trajectory: Trajectory, base_fault: LocalizedFault, step_1based: int) -> Optional[LocalizedFault]:

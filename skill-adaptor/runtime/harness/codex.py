@@ -46,7 +46,7 @@ class CodexHarness:
     def _agents_evolved_path(self) -> Path:
         return self.project_root / '.agents' / 'skills' / EVOLVED_SKILL_DIR / 'SKILL.md'
 
-    def prepare_runtime(self, *, model: str) -> None:
+    def prepare_runtime(self, *, model: str, api_key: str | None = None, base_url: str | None = None) -> None:
         (_codex_home() / 'skills').mkdir(parents=True, exist_ok=True)
         (self.project_root / '.agents' / 'skills').mkdir(parents=True, exist_ok=True)
         sync_workspace_skills_to_codex(self._workspace_skills_dir(), self.project_root)

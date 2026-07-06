@@ -7,13 +7,11 @@ import re
 import shutil
 import subprocess
 import sys
-import threading
-import time
 import platform
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from core.types import Trajectory, Step, Skill
-from core.openclaw_hygiene import cleanup_agent_sessions, clear_bootstrap_files, discover_workspace_root, openclaw_agent_id, require_gateway_running, DEFAULT_BOOTSTRAP_FILES
+from core.openclaw_hygiene import cleanup_agent_sessions, openclaw_agent_id, require_gateway_running
 from core.openclaw_agent_setup import prepare_openclaw_for_model
 from adapters.errors import TaskExecutionError, PlaceholderDeliverableError
 from .trajectory_extractor import extract_trajectory_for_task, save_trajectory
@@ -25,7 +23,6 @@ from runtime.execution_binding import apply_prompt_prefix
 from adapters.pinchbench_adapter.score_normalize import resolve_shell_task_score
 from runtime.harness import AgentHarness, get_harness
 from runtime.harness.openclaw import EVOLVED_SKILL_DIR as OPENCLAW_EVOLVED_SKILL_DIR
-OPENCLAW_BOOTSTRAP_FILES = DEFAULT_BOOTSTRAP_FILES
 
 class PinchBenchExecutor:
 
@@ -179,94 +176,6 @@ class PinchBenchExecutor:
             fix_main_auth=True,
         )
 
-    def _get_agent_store_dir(self, agent_id: str) -> Path:
-        base_dir = Path.home() / '.openclaw' / 'agents'
-        direct_dir = base_dir / agent_id
-        if direct_dir.exists():
-            return direct_dir
-        normalized_dir = base_dir / agent_id.replace(':', '-')
-        if normalized_dir.exists():
-            return normalized_dir
-        return direct_dir
-
-    def _cleanup_agent_sessions(self, agent_id: str) -> None:
-        agent_dir = self._get_agent_store_dir(agent_id)
-        sessions_dir = agent_dir / 'sessions'
-        if not sessions_dir.exists():
-            return
-        removed = 0
-        for pattern in ('*.jsonl', '*.jsonl.lock'):
-            for path in sessions_dir.glob(pattern):
-                try:
-                    path.unlink()
-                    removed += 1
-                except OSError:
-                    pass
-        sessions_store = sessions_dir / 'sessions.json'
-        if sessions_store.exists():
-            try:
-                sessions_store.unlink()
-            except OSError:
-                pass
-        if removed:
-            print(f'[Executor] Cleaned {removed} old session files for {agent_id}')
-
-    def _clear_bootstrap_files(self, workspace: Path) -> None:
-        if not workspace.exists():
-            return
-        removed = []
-        for filename in OPENCLAW_BOOTSTRAP_FILES:
-            filepath = workspace / filename
-            if filepath.exists():
-                try:
-                    filepath.unlink()
-                    removed.append(filename)
-                except OSError as exc:
-                    print(f'[Executor] Could not remove {filename}: {exc}')
-        if removed:
-            print(f'[Executor] Cleared bootstrap files: {removed}')
-
-    def _start_bootstrap_cleanup_thread(self, workspaces: List[Path]) -> threading.Event:
-        stop_event = threading.Event()
-
-        def cleanup_loop():
-            while not stop_event.is_set():
-                for workspace in workspaces:
-                    if workspace.exists():
-                        for filename in OPENCLAW_BOOTSTRAP_FILES:
-                            filepath = workspace / filename
-                            if filepath.exists():
-                                try:
-                                    filepath.unlink()
-                                except OSError:
-                                    pass
-                time.sleep(2.0)
-        cleanup_thread = threading.Thread(target=cleanup_loop, daemon=True)
-        cleanup_thread.start()
-        return stop_event
-
-    def _get_workspace_dir(self, agent_id: str) -> Path:
-        try:
-            result = subprocess.run(['openclaw', 'agents', 'list'], capture_output=True, text=True, check=False)
-            if result.returncode == 0:
-                normalized_id = agent_id.replace(':', '-')
-                lines = result.stdout.split('\n')
-                found_agent = False
-                for line in lines:
-                    stripped = line.strip()
-                    if stripped.startswith(f'- {agent_id}') or stripped.startswith(f'- {normalized_id}'):
-                        found_agent = True
-                    elif found_agent and 'Workspace:' in line:
-                        workspace_str = line.split('Workspace:')[1].strip()
-                        if workspace_str.startswith('~/'):
-                            workspace_str = str(Path.home() / workspace_str[2:])
-                        return Path(workspace_str)
-                    elif found_agent and line.strip().startswith('-'):
-                        break
-        except Exception:
-            pass
-        return Path.home() / '.pinchbench'
-
     def _verify_task_prompt_loaded(self, task_id: str) -> str:
         prompt = self._load_task_description(task_id)
         if len(prompt.strip()) < 20:
@@ -295,7 +204,6 @@ class PinchBenchExecutor:
         cmd = [*self._benchmark_cmd_prefix(), 'scripts/benchmark.py', '--model', effective_model, '--suite', task_id, '--no-upload', '--timeout-multiplier', str(timeout_multiplier)]
         if self.base_url:
             cmd.extend(['--base-url', self.base_url])
-        # API key is passed via env (OPENAI_API_KEY) in _setup_env — avoid argv leakage in ps/logs.
         env = self._setup_env()
         env = apply_prompt_prefix(env, task_id, self._task_prompt_prefixes)
         result = subprocess.run(cmd, cwd=self.pinchbench_path, capture_output=True, text=True, timeout=timeout, env=env)
@@ -467,18 +375,20 @@ class PinchBenchExecutor:
                             response_text = content.strip()[:500]
                             break
             if score_preview > 0 or response_text:
-                steps = [
-                    Step(
-                        index=0,
-                        observation=(task_description or task_id)[:500],
-                        action='(assistant response)',
-                        reward=float(score_preview or 0),
-                        done=True,
-                        skills_used=skills_used_in_task,
-                        metadata={'step_provenance': 'synthetic_minimal', 'step_source': 'pinchbench_transcript_fallback'},
-                    )
-                ]
-                print(f'[Executor] Synthesized minimal trajectory ({len(steps)} step) for {task_id}')
+                allow_synthetic = os.environ.get('ALLOW_SYNTHETIC_TRAJECTORY', '').strip().lower() in ('1', 'true', 'yes')
+                if allow_synthetic:
+                    steps = [
+                        Step(
+                            index=0,
+                            observation=(task_description or task_id)[:500],
+                            action='(assistant response)',
+                            reward=float(score_preview or 0),
+                            done=True,
+                            skills_used=skills_used_in_task,
+                            metadata={'step_provenance': 'synthetic_minimal', 'step_source': 'pinchbench_transcript_fallback'},
+                        )
+                    ]
+                    print(f'[Executor] Synthesized minimal trajectory ({len(steps)} step) for {task_id}')
         if not steps:
             raise TaskExecutionError(f'No trajectory steps captured for {task_id}. OpenClaw/PinchBench transcript extraction returned empty steps.')
         score = resolve_shell_task_score(task_id, task_data, steps, task_description or '')
