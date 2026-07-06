@@ -1,38 +1,28 @@
-# OpenClaw TypeScript plugin (SkillAdaptor)
+# OpenClaw plugin
 
-The canonical **TypeScript UI** lives in the sibling repo **SkillEvolve-openclaw** (`src/skill-evolve-ts`).
+OpenClaw provides the UI; this repo provides the Python evolution engine under `skill-adaptor/`.
 
-The **Python evolution engine** (paper-aligned) lives in **this repo** under `skill-adaptor/`. It is a **general workspace plugin**: any tasks under `input_task/`, optional `--manifest`, or bridge `--input-trajectories`.
+## Install
 
-## Architecture (two repos, one pipeline)
-
-```text
-OpenClaw UI (TS plugin)
-  → python/run_openclaw_evolve.py   # bridge
-  → skill-adaptor/run_plugin.py     # workspace + manifest
-  → PluginHost → run_pinchbench → SkillEvolveOrchestrator
-  → export skills/<id>/SKILL.md
-```
-
-## Install TS plugin
+**TypeScript plugin** (UI):
 
 ```powershell
 openclaw plugins install <ABS_PATH>/SkillEvolve-openclaw/src/skill-evolve-ts
 openclaw plugins enable skill-adaptor
 ```
 
-## Sync Python bridge
-
-Copy **this file** into the TS package (overwrite upstream inline runner):
+**Python bridge** — copy into the TS package:
 
 ```text
 skill-adaptor/plugin/python/run_openclaw_evolve.py
   → SkillEvolve-openclaw/src/skill-evolve-ts/python/run_openclaw_evolve.py
 ```
 
-The reference bridge delegates to `run_plugin.py` (same path as CLI smoke5_v02), and prints `EVOLVE_OUTPUT_FILE=...` for the TS parser.
+The bridge calls `run_plugin.py` and prints `EVOLVE_OUTPUT_FILE=...` for the UI parser.
 
-## Plugin config (`openclaw.json` or UI)
+## Configure
+
+`openclaw.json` or plugin UI:
 
 ```json
 {
@@ -47,15 +37,12 @@ The reference bridge delegates to `run_plugin.py` (same path as CLI smoke5_v02),
 | Field | Meaning |
 |-------|---------|
 | `skillAdaptorRoot` | Directory containing `run_plugin.py` |
-| `benchmarkEnv` | `pinchbench` \| `claw-eval` \| `webshop` |
-| `allAsTest` | `false` for normal train/val split; `true` only for quick probes |
+| `benchmarkEnv` | `pinchbench`, `claw-eval`, or `webshop` |
+| `allAsTest` | `false` for train/val split; `true` for quick probes only |
+| `maxIterations` | Evolution loop cap |
 
-CLI also supports `--harness openclaw|claude-code|codex|hermes` and `--program-git` (optional git branches `skill-adaptor/program/*`).
+CLI equivalents: `--harness openclaw`, `--program-git` for optional `skill-adaptor/program/*` branches.
 
-## Environment
+## Secrets
 
-Same as CLI: load `secrets/.env` via `scripts/load_secrets.ps1` (API keys are never shipped in the repo). Set `PINCHBENCH_PATH` for live PinchBench runs.
-
-## Do not duplicate the TS tree here
-
-Install from SkillEvolve-openclaw and point `skillAdaptorRoot` at this Python package.
+Load `secrets/.env` via `scripts/load_secrets.ps1` or `load_secrets.sh`. Set `PINCHBENCH_PATH` (or `CLAW_EVAL_PATH` / `WEBSHOP_PATH`) for live benchmark runs.

@@ -9,31 +9,30 @@
 <img src="paper/overview.png" alt="SkillAdaptor overview" width="900"/>
 
 [Installation](#installation) ·
-[Quick Start](#quick-start) ·
-[Step-level trajectories](#step-level-trajectory-extraction) ·
-[Paper](#paper) ·
-[OpenClaw](#openclaw-typescript-plugin) ·
+[Quick start](#quick-start) ·
+[Trajectory requirements](#trajectory-requirements) ·
+[Configuration](#configuration) ·
+[Agents](#agents) ·
 [Citation](#citation)
-
 
 </div>
 
 ---
 
-**SkillAdaptor** is a **Python CLI + workspace plugin** that evolves agent **`SKILL.md`** files from failure trajectories. It plugs into **[OpenClaw](https://github.com/openclaw/openclaw)**, **Claude Code**, **Codex CLI**, and **[Hermes Agent](https://github.com/NousResearch/hermes-agent)** via a harness layer (`--harness openclaw|claude-code|codex|hermes`) — same evolution engine, different agent runtime. **Not tied to a fixed task list:** you bring any tasks (markdown briefs, manifest, or benchmark auto-discover); the step-level Localizer→Validator pipeline stays the same.
+**SkillAdaptor** evolves agent **`SKILL.md`** files from failure trajectories. Run it as a Python CLI on any workspace, or wire it into **OpenClaw**, **Claude Code**, **Codex CLI**, or **Hermes Agent** via `--harness`.
 
-- **Step-level attribution** — On a failed agent run, SkillAdaptor reads the step-by-step trace: the **Localizer** marks the earliest bad step **t★** (e.g. wrong tool call or deliverable); the **Linker** scores which injected `SKILL.md` is responsible at that step; **Reviser** patches that skill or **Generator** writes a new one; **Validator** re-runs held-out tasks and adopts only if metrics beat the baseline.
-- **General workspace plugin** — `run_plugin.py init` + `run_plugin.py`; outputs `skills/<id>/SKILL.md` (harness sync: `.claude/skills/`, `~/.codex/skills/`, `~/.hermes/skills/skill-adaptor/`, or OpenClaw workspace)
-- **Flexible task sources** — `input_task/*.md` (default) · `--manifest` · `auto_discover` · OpenClaw bridge `--input-trajectories`
-- **Retrieval-gated inject** — no global skill pollution on unrelated tasks
+- **Step-level attribution** — On a failed run, the **Localizer** finds the earliest bad step **t★**; the **Linker** scores which injected skill caused it; **Reviser** patches or **Generator** creates a skill; **Validator** re-runs held-out tasks and adopts only on improvement.
+- **Workspace output** — `skills/<id>/SKILL.md`, synced to your agent’s skill paths.
+- **Flexible tasks** — `input_task/*.md`, `--manifest`, `auto_discover`, or `--input-trajectories`.
+- **Retrieval-gated inject** — skills attach only when relevant.
 
-> PinchBench / WebShop / Claw-Eval are **optional executors** (set env paths). Core plugin works on any task briefs you provide.
+PinchBench, WebShop, and Claw-Eval are optional executors (`--env` + path env vars). Custom task briefs work without them.
 
 ---
 
 ## Installation
 
-### 1. Clone & Python deps
+### Clone & Python deps
 
 ```bash
 git clone https://github.com/zjunlp/SkillAdaptor.git
@@ -41,13 +40,13 @@ cd SkillAdaptor/skill-adaptor
 pip install -r requirements.txt
 ```
 
-### 2. Secrets (never commit)
+### Secrets
 
 ```bash
-cd ..   # repo root (SkillAdaptor/)
+cd ..   # repo root
 mkdir -p secrets
 cp .env.example secrets/.env
-# Edit secrets/.env — API keys & paths (placeholders only in .env.example)
+# Edit secrets/.env — API keys & paths
 ```
 
 ```bash
@@ -58,159 +57,157 @@ source scripts/load_secrets.sh
 . scripts\load_secrets.ps1
 ```
 
-### 3. Agent harness
+### Agent harness
 
-**OpenClaw (recommended for live runs)**
+| Harness | Flag | Install guide |
+|---------|------|---------------|
+| OpenClaw | `--harness openclaw` | [plugin/openclaw/README.md](plugin/openclaw/README.md) |
+| Claude Code | `--harness claude-code` | [below](#claude-code) |
+| Codex CLI | `--harness codex` | [plugin/codex/README.md](plugin/codex/README.md) |
+| Hermes Agent | `--harness hermes` | [plugin/hermes/README.md](plugin/hermes/README.md) |
+
+OpenClaw live runs need a running gateway:
 
 ```bash
 npm install -g openclaw
 openclaw gateway start
-openclaw gateway status   # Connectivity probe: ok
+openclaw gateway status
 ```
-
-Set `PINCHBENCH_PATH` in `secrets/.env` only when using the PinchBench benchmark executor.
-**Claude Code:** `--harness claude-code` → syncs to `.claude/skills/`.  
-**Codex CLI:** `--harness codex` → syncs to `~/.codex/skills/` and `.agents/skills/` ([install guide](plugin/codex/README.md)).  
-**Hermes Agent:** `--harness hermes` → syncs to `~/.hermes/skills/skill-adaptor/` ([install guide](plugin/hermes/README.md)).
 
 ---
 
 ## Quick start
 
-**Python CLI** (works standalone or behind the OpenClaw TS plugin):
-
 ```bash
 cd skill-adaptor
-python run_plugin.py init --workspace ../my-workspace --harness claude-code   # or openclaw / codex / hermes
-# Task source A: add your own *.md briefs under my-workspace/input_task/
+python run_plugin.py init --workspace ../my-workspace --harness claude-code
+# Add *.md task briefs under ../my-workspace/input_task/
 python run_plugin.py --workspace ../my-workspace --dry-run
 python run_plugin.py --workspace ../my-workspace --max-iterations 2
 ```
 
-**Task sources** (pick one or combine with `--sync-tasks`):
+**Task sources**
 
 | Source | When to use |
 |--------|-------------|
-| `input_task/*.md` | **Default** — any custom tasks (EvoSkill-style workspace folders) |
-| `--manifest path.json` | Repro/paper splits (local file, optional) |
-| `--mode auto_discover` | Auto-split tasks from `PINCHBENCH_PATH` checkout |
-| OpenClaw bridge `--input-trajectories` | Seed failures from existing trajectory files |
+| `input_task/*.md` | Default — any custom tasks |
+| `--manifest path.json` | Fixed train/val splits |
+| `--mode auto_discover` | Auto-split from `PINCHBENCH_PATH` checkout |
+| `--input-trajectories` | Seed failures from existing trajectory files |
 
-**Workspace layout:**
+**Workspace layout**
 
 | Path | Role |
 |------|------|
-| `input_task/*.md` | Task briefs — auto-scanned; ~20% held out as validation Q′ |
-| `test_task/` | Optional extra held-out task briefs |
+| `input_task/*.md` | Task briefs; ~20% held out as validation Q′ |
+| `test_task/` | Optional extra held-out briefs |
 | `skills/<id>/SKILL.md` | Adopted skills after Validator passes |
 
-Use **`--sync-tasks`** after editing task files. For **workspace-only** runs (`--env workspace`, default when no benchmark path is set), tasks live in `input_task/` and do **not** need `PINCHBENCH_PATH`. Set `PINCHBENCH_PATH` only for PinchBench / Claw-Eval benchmark executors.
+Use `--sync-tasks` after editing task files. With `--env workspace` (default when no benchmark path is set), tasks live in `input_task/` only.
 
 ---
 
-## Step-level trajectory extraction
+## Trajectory requirements
 
-SkillAdaptor **extracts steps automatically** from agent run artifacts — you do not hand-label trajectories for the evolution loop.
-
-| Source | Typical executor | What gets parsed |
-|--------|------------------|------------------|
-| OpenClaw session JSONL | `workspace`, PinchBench | `toolCall` / `tool_use` → one step per tool call |
-| Claw-Eval trace JSONL | `claw-eval` | `tool_use` events in trace files |
-| PinchBench transcript | `pinchbench` | Native transcript + OpenClaw extract (merged) |
-| Pre-seeded files | `--input-trajectories` | Copied into `.skill-adaptor/artifacts/trajectories/` |
-
-Merged steps are written to `{task_id}_annotated.json` with `metadata.step_provenance` (e.g. `native_primary_enriched`, `extracted_primary`) and per-step `action` / `observation`.
-
-### Tool actions required
-
-Step-level Localizer → Linker → Reviser/Generator **only runs on real tool steps**. Each usable step must have a **tool-level `action`**, e.g.:
+Evolution runs on **tool steps** only. Each step must carry a tool-level `action`, for example:
 
 ```text
 shell({"command": "grep ERROR app.log"})
 write({"path": "report.txt", "content": "..."})
 ```
 
-The following **do not** count as evolution-grade steps:
+These do **not** qualify:
 
-- `(assistant response)` — text-only turns with no tool call  
-- Empty / placeholder actions (`(no action)`, `(end)`, …)  
-- Runs with score but **no** parseable tool trace  
+- `(assistant response)` — text-only turns
+- Empty placeholders (`(no action)`, `(end)`, …)
+- Runs with a score but no parseable tool trace
 
-If a live run produces no qualifying steps, SkillAdaptor **fails fast** (`TaskExecutionError`) instead of silently inventing a trajectory.
-
-### Exceptions (probes only)
-
-| Mode | Behavior |
-|------|----------|
-| Default | No trace → **error**; evolution stops for that task |
-| `probe_mode=true` in manifest | Sets `ALLOW_SYNTHETIC_TRAJECTORY=1`; may synthesize a **1-step** minimal trajectory when only score/text is available |
-| `--input-trajectories` | Seed real traces before evolution (still must contain tool actions to be useful) |
-
-Check `steps[].metadata.step_provenance` and `steps[].action` in `{task_id}_annotated.json` to confirm a run is real, not synthetic.
+If a live run has no qualifying steps, SkillAdaptor raises `TaskExecutionError` instead of inventing a trajectory.
 
 ---
 
-## LLM configuration (URL / API key / model)
+## Configuration
 
-Configure **one chat API** + **one embedding API** in `secrets/.env`. Switch models with **`--model` only** — no env edits per model.
+Load `secrets/.env` before running. Full template: [`.env.example`](.env.example).
 
-### Recommended setup
+### Chat & embeddings
+
+Two independent **API key + base URL** pairs. Endpoints must be OpenAI-compatible (`…/v1`). Switch chat models with `--model` only.
+
+**Chat** (`SkillAdaptor_PROVIDER=auto`, default):
+
+| Variable | Role |
+|----------|------|
+| `OPENAI_API_KEY` | Chat API key |
+| `OPENAI_API_BASE_URL` | Chat endpoint (relay / DeepSeek / Kimi / GLM — same pair) |
+| `SkillEvolve_MODEL` | Default model when `--model` omitted |
+
+**Embedding** (always separate — skill–task matching):
+
+| Variable | Role |
+|----------|------|
+| `SkillEvolve_EMBEDDING_API_KEY` | Embedding API key |
+| `SkillEvolve_EMBEDDING_BASE_URL` | Embedding endpoint |
+| `SkillEvolve_EMBEDDING_MODEL` | Model id (default `Qwen3-Embedding-8B`) |
+
+If embedding key/URL are omitted, chat `OPENAI_API_*` is used as fallback. Prefer setting the embedding pair explicitly when the embedding host differs from chat.
 
 ```bash
 # secrets/.env
 SkillAdaptor_PROVIDER=auto
-OPENAI_API_BASE_URL=https://your-api.example.com/v1
+OPENAI_API_BASE_URL=https://your-relay.example.com/v1
 OPENAI_API_KEY=sk-...
 SkillEvolve_MODEL=gpt-4.1
 
 SkillEvolve_EMBEDDING_API_KEY=sk-...
-SkillEvolve_EMBEDDING_BASE_URL=https://your-embedding-api.example.com/v1
-SkillEvolve_EMBEDDING_MODEL=text-embedding-3-small
+SkillEvolve_EMBEDDING_BASE_URL=https://your-embedding.example.com/v1
+SkillEvolve_EMBEDDING_MODEL=Qwen3-Embedding-8B
 ```
+
+DeepSeek via relay (no extra provider vars): keep `SkillAdaptor_PROVIDER=auto`, point `OPENAI_API_BASE_URL` at DeepSeek, use `--model deepseek-chat`.
+
+After startup, `resolve_and_apply` mirrors the active chat pair into `SkillEvolve_API_KEY` / `SkillEvolve_BASE_URL` for downstream executors.
 
 ```bash
 . scripts/load_secrets.ps1   # or source scripts/load_secrets.sh
 cd skill-adaptor
 
-# Same .env — only change --model:
-python run_plugin.py --workspace ../my-workspace --model gpt-4.1
 python run_plugin.py --workspace ../my-workspace --model kimi-k2.5
-python run_plugin.py --workspace ../my-workspace --model glm-5
 ```
 
-At runtime the plugin writes **one canonical env set** for the whole pipeline:
+**Alternate chat providers** — only when the gateway needs its own key/URL pair:
 
-`SkillEvolve_*`, `OPENAI_*`, `MODEL`, `SkillAdaptor_ACTIVE_PROVIDER`.
+| `SkillAdaptor_PROVIDER` | Key | Base URL | Notes |
+|-------------------------|-----|----------|-------|
+| `deepseek` | `DEEPSEEK_API_KEY` → else `OPENAI_API_KEY` | `DEEPSEEK_API_BASE_URL` → else `OPENAI_API_BASE_URL` | OpenAI-compatible; default base `https://api.deepseek.com/v1` |
+| `openrouter` | `OPENROUTER_API_KEY` → else `OPENAI_API_KEY` | `OPENROUTER_API_BASE_URL` → else `OPENAI_API_BASE_URL` | Model ids use `vendor/model`; embedding falls back to `openai/text-embedding-3-small` when no separate embedding API |
 
-### Optional alternate chat providers
+Legacy provider names (`relay-gpt41`, `relay-kimi`, `gpt`, `glm`) map to `auto`.
 
-Set `SkillAdaptor_PROVIDER` only when you need a different chat backend entirely:
+### Other environment variables
 
-| `SkillAdaptor_PROVIDER` | Env vars |
-|-------------------------|----------|
-| `auto` (default) | `OPENAI_API_KEY` + `OPENAI_API_BASE_URL` |
-| `deepseek` | `DEEPSEEK_API_*` |
-| `openrouter` | `OPENROUTER_API_*` |
-
-Legacy names (`relay-gpt41`, `relay-kimi`, `gpt`, `glm`) map to `auto`.
-
-### Embeddings
-
-Skill–task matching always uses `SkillEvolve_EMBEDDING_*` (independent from chat URL/key).
-
-
+| Variable | Purpose |
+|----------|---------|
+| `SkillAdaptor_PROVIDER` | Chat backend: `auto` (default), `deepseek`, `openrouter` |
+| `SkillAdaptor_BENCHMARK_ENV` | Default executor when `--env` omitted: `pinchbench`, `claw-eval`, `webshop` |
+| `SkillAdaptor_HARNESS` | Default harness: `openclaw`, `claude-code`, `codex`, `hermes` |
+| `DEEPSEEK_MODEL` | Default DeepSeek model when `SkillAdaptor_PROVIDER=deepseek` and `--model` omitted |
+| `OPENROUTER_MODEL` | Default OpenRouter model when `SkillAdaptor_PROVIDER=openrouter` and `--model` omitted |
+| `PINCHBENCH_PATH` | PinchBench executor (`--env pinchbench`) |
+| `CLAW_EVAL_PATH` | Claw-Eval executor (`--env claw-eval`) |
+| `WEBSHOP_PATH` | WebShop executor (`--env webshop`) |
+| `CODEX_HOME` | Codex home directory (default `~/.codex`) |
+| `HERMES_HOME` | Hermes home directory (default `~/.hermes`) |
+| `OPENCLAW_CLI` | Explicit `openclaw` binary path |
+| `ALLOW_SYNTHETIC_TRAJECTORY` | `1` — one-step fallback when no tool trace (debug only) |
 
 ---
 
-## OpenClaw plugin (TS UI + Python engine)
+## Agents
 
-Like EvoSkill: **Python CLI is the engine**; OpenClaw adds a TypeScript plugin shell that calls it.
+### OpenClaw
 
-```
-OpenClaw TS plugin  →  plugin/python/run_openclaw_evolve.py  →  run_plugin.py  →  PluginHost
-```
-
-Configure in `openclaw.json`:
+TypeScript UI plugin + Python bridge. Configure in `openclaw.json`:
 
 ```json
 {
@@ -221,82 +218,44 @@ Configure in `openclaw.json`:
 }
 ```
 
-See [plugin/openclaw/README.md](plugin/openclaw/README.md). TS UI lives in a separate repo (e.g. SkillEvolve-openclaw).
+Details: [plugin/openclaw/README.md](plugin/openclaw/README.md).
 
----
+### Claude Code
 
-## Claude Code (direct install)
-
-Adopted skills sync to `.claude/skills/`. **Exporting skills does not require OpenClaw**; live PinchBench validation (`--env pinchbench`) still runs tasks through the **OpenClaw gateway** and needs `PINCHBENCH_PATH` (same executor as `--harness openclaw`).
+Skills sync to `.claude/skills/`.
 
 ```bash
 python run_plugin.py init --workspace /path/to/your-project --harness claude-code
-# add tasks under /path/to/your-project/input_task/
-# load API keys: source scripts/load_secrets.sh  (or secrets/.env on Windows)
 python run_plugin.py --workspace /path/to/your-project --harness claude-code
 ```
 
----
+PinchBench validation (`--env pinchbench`) runs tasks through the OpenClaw gateway and needs `PINCHBENCH_PATH`.
 
-## Codex CLI (direct install)
+### Codex CLI
 
-No OpenClaw required — adopted skills sync to Codex discovery paths (`~/.codex/skills/` + `.agents/skills/`):
+Skills sync to `~/.codex/skills/` and `<workspace>/.agents/skills/`.
 
 ```bash
 python run_plugin.py init --workspace /path/to/your-project --harness codex
 python run_plugin.py --workspace /path/to/your-project --harness codex
 ```
 
-Enable skills in `~/.codex/config.toml` (`[features] skills = true`) and restart Codex. See [plugin/codex/README.md](plugin/codex/README.md) for marketplace plugin install.
+Enable `[features] skills = true` in `~/.codex/config.toml` and restart Codex. Marketplace plugin steps: [plugin/codex/README.md](plugin/codex/README.md).
 
----
+### Hermes Agent
 
-## Hermes Agent (direct install)
-
-No OpenClaw required — adopted skills sync to Hermes category layout (`~/.hermes/skills/skill-adaptor/`):
+Skills sync to `~/.hermes/skills/skill-adaptor/`.
 
 ```bash
 python run_plugin.py init --workspace /path/to/your-project --harness hermes
 python run_plugin.py --workspace /path/to/your-project --harness hermes
 ```
 
-See [plugin/hermes/README.md](plugin/hermes/README.md) for `HERMES_HOME`, `skills.external_dirs`, and operator skill install.
-
----
-
-## Configuration
-
-| Variable | Purpose |
-|----------|---------|
-| `SkillAdaptor_PROVIDER` | `auto` (default) \| `deepseek` \| `openrouter` |
-| `OPENAI_API_KEY` / `OPENAI_API_BASE_URL` | Chat LLM (all models via `--model`) |
-| `SkillEvolve_MODEL` | Default model when `--model` omitted |
-| `SkillEvolve_EMBEDDING_*` | Embedding API (skill retrieval) |
-| `DEEPSEEK_API_*` | Only when `SkillAdaptor_PROVIDER=deepseek` |
-| `OPENROUTER_API_*` | Only when `SkillAdaptor_PROVIDER=openrouter` |
-| `SkillAdaptor_HARNESS` | `openclaw` \| `claude-code` \| `codex` \| `hermes` |
-| `CODEX_HOME` | Codex home (default `~/.codex`) |
-| `HERMES_HOME` | Hermes home (default `~/.hermes`) |
-| `PINCHBENCH_PATH` | PinchBench executor only (`--env pinchbench`) |
-| `CLAW_EVAL_PATH` | Claw-Eval executor only (`--env claw-eval`) |
-| `ALLOW_SYNTHETIC_TRAJECTORY` | `1` to allow 1-step fallback when no tool trace (probes; not for paper eval) |
-| `OPENCLAW_CLI` | Optional explicit `openclaw` path |
-
-Full template: [`.env.example`](.env.example).
-
----
-
-## Paper
-
-**[SkillAdaptor: Self-Adapting Skills for LLM Agents from Trajectories](https://arxiv.org/abs/2606.01311)** ([arXiv:2606.01311](https://arxiv.org/abs/2606.01311))
-
-Method overview figure: [`paper/overview.png`](paper/overview.png) (also shown above).
+Profile paths and operator skill: [plugin/hermes/README.md](plugin/hermes/README.md).
 
 ---
 
 ## Citation
-
-If you use SkillAdaptor in research, please cite:
 
 ```bibtex
 @misc{yu2026skilladaptor,
@@ -314,10 +273,4 @@ If you use SkillAdaptor in research, please cite:
 
 ## License
 
-This project is released under the [MIT License](https://opensource.org/licenses/MIT).
-
----
-
-## Acknowledgement
-
-Structure inspired by open-source agent tooling from [ZJUNLP](https://github.com/zjunlp/) (e.g. [EasyEdit](https://github.com/zjunlp/EasyEdit), [LightMem](https://github.com/zjunlp/LightMem), [SkillNet](https://github.com/zjunlp/SkillNet)).
+[MIT License](https://opensource.org/licenses/MIT)

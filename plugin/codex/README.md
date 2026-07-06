@@ -1,80 +1,61 @@
-# Codex CLI plugin (SkillAdaptor)
+# Codex CLI
 
-**Python evolution engine** lives in `skill-adaptor/` (same as OpenClaw / Claude Code). The Codex harness syncs adopted skills into paths Codex discovers at runtime.
+SkillAdaptor exports evolved skills to the paths Codex reads at runtime.
 
-## Architecture
-
-```text
-Codex CLI (or OpenClaw codex harness)
-  → reads ~/.codex/skills/**/SKILL.md
-  → reads <workspace>/.agents/skills/**/SKILL.md   # EvoSkill-compatible repo-local path
-
-SkillAdaptor CLI
-  → run_plugin.py --harness codex
-  → export skills/<id>/SKILL.md
-  → sync to ~/.codex/skills/ + workspace/.agents/skills/
-```
-
-This mirrors [EvoSkill](https://github.com/sentient-agi/EvoSkill): Codex discovers skills via **`~/.codex/skills/`** and repo-local **`.agents/skills/`** (no OpenClaw gateway required).
-
-## Install Codex CLI
+## Install Codex
 
 ```bash
 # macOS
 brew install --cask codex
-
-# Or see https://developers.openai.com/codex
 ```
 
-Enable skills in `~/.codex/config.toml` (if not already on):
+Docs: https://developers.openai.com/codex
+
+Turn on skills in `~/.codex/config.toml`:
 
 ```toml
 [features]
 skills = true
 ```
 
-Restart Codex after installing skills.
+Restart Codex after changing skills.
 
-## Use SkillAdaptor with Codex
+## Run SkillAdaptor
 
 ```bash
 cd skill-adaptor
 python run_plugin.py init --workspace ../my-workspace --harness codex
-# add your own task brief under ../my-workspace/input_task/
+# Add task briefs under ../my-workspace/input_task/
 python run_plugin.py --workspace ../my-workspace --harness codex --dry-run
 python run_plugin.py --workspace ../my-workspace --harness codex --max-iterations 2
 ```
 
-Adopted skills land in:
+Load API keys first: `source scripts/load_secrets.sh` or `. scripts\load_secrets.ps1`.
 
-| Path | Purpose |
-|------|---------|
-| `<workspace>/skills/<id>/SKILL.md` | Canonical SkillAdaptor export |
-| `~/.codex/skills/<id>/SKILL.md` | Codex global skill discovery |
-| `<workspace>/.agents/skills/<id>/SKILL.md` | Repo-local discovery (EvoSkill-style) |
+## Where skills land
 
-During validation runs, the active candidate is also injected as `skill-adaptor-evolved/SKILL.md` in those trees.
+| Path | Role |
+|------|------|
+| `<workspace>/skills/<id>/SKILL.md` | Canonical export |
+| `~/.codex/skills/<id>/SKILL.md` | Global Codex discovery |
+| `<workspace>/.agents/skills/<id>/SKILL.md` | Repo-local discovery |
 
-## Optional: native Codex plugin (marketplace)
+During validation, the active candidate is also written as `skill-adaptor-evolved/SKILL.md` in those trees.
 
-To register SkillAdaptor as a **Codex curated plugin** (skills bundled with a marketplace entry):
+## Marketplace plugin (optional)
 
-1. Copy `plugin/codex/skill-adaptor-plugin/` to `~/.codex/plugins/skill-adaptor/`
+Bundle SkillAdaptor as a Codex curated plugin:
+
+1. Copy `plugin/codex/skill-adaptor-plugin/` → `~/.codex/plugins/skill-adaptor/`
 2. Merge `plugin/codex/marketplace.fragment.json` into `~/.agents/plugins/marketplace.json`
-3. Restart Codex and verify with `/codex skills` (OpenClaw) or Codex desktop skills list
+3. Restart Codex; check the skills list in the Codex UI
 
-The bundled meta-skill `skills/skill-adaptor/SKILL.md` documents how to invoke `run_plugin.py` from a Codex session.
-
-## OpenClaw + Codex harness
-
-If you run OpenClaw with the bundled **codex** plugin (`plugins.entries.codex.enabled`), OpenClaw routes OpenAI model turns through Codex app-server. SkillAdaptor still evolves skills via Python CLI; point `--harness codex` so exports land in `~/.codex/skills/`. Use `openclaw migrate codex` to inventory personal Codex skills into OpenClaw when needed.
+The bundled skill `skills/skill-adaptor/SKILL.md` documents how to call `run_plugin.py` from a Codex session.
 
 ## Environment
 
 | Variable | Purpose |
 |----------|---------|
-| `SkillAdaptor_HARNESS` | Set to `codex` |
+| `SkillAdaptor_HARNESS` | `codex` |
 | `CODEX_HOME` | Default `~/.codex` |
-| `OPENAI_API_KEY` | Codex + SkillAdaptor LLM calls |
-
-Same secrets loading as CLI: `scripts/load_secrets.ps1` / `load_secrets.sh`.
+| `OPENAI_API_KEY` | Chat LLM for SkillAdaptor and Codex |

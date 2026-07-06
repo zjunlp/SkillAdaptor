@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
-from core.embedding_config import PRIMARY_EMBEDDING_MODEL
+from core.embedding_config import PRIMARY_EMBEDDING_MODEL, resolve_openrouter_embedding_model
 
 OPENROUTER_DEFAULT_BASE = 'https://openrouter.ai/api/v1'
 DEEPSEEK_OPENAI_COMPAT_BASE = 'https://api.deepseek.com/v1'
@@ -71,26 +71,35 @@ def normalize_provider_name(name: Optional[str]) -> str:
     return _PROVIDER_ALIASES.get(key, key or 'auto')
 
 
+def _api_pair(
+    key_envs: tuple[str, ...],
+    url_envs: tuple[str, ...],
+    *,
+    default_url: str = '',
+) -> tuple[str, str]:
+    """Read API key + base URL from env, first non-empty wins per field."""
+    key = _first_non_empty(*(os.environ.get(name) for name in key_envs))
+    url_values: list[Optional[str]] = [os.environ.get(name) for name in url_envs]
+    if default_url:
+        url_values.append(default_url)
+    base_url = _first_non_empty(*url_values)
+    return key, base_url
+
+
+_CHAT_KEY_ENVS = ('OPENAI_API_KEY', 'SkillEvolve_API_KEY')
+_CHAT_URL_ENVS = ('OPENAI_API_BASE_URL', 'SkillEvolve_BASE_URL', 'OPENAI_BASE_URL')
+_EMB_KEY_ENVS = ('SkillEvolve_EMBEDDING_API_KEY', 'OPENAI_API_KEY', 'SkillEvolve_API_KEY')
+_EMB_URL_ENVS = ('SkillEvolve_EMBEDDING_BASE_URL', 'OPENAI_API_BASE_URL', 'SkillEvolve_BASE_URL')
+
+
 def _embedding_credentials() -> tuple[str, str, str]:
-    emb_key = _first_non_empty(
-        os.environ.get('SkillEvolve_EMBEDDING_API_KEY'),
-        os.environ.get('OPENAI_API_KEY'),
-        os.environ.get('SkillEvolve_API_KEY'),
-    )
-    emb_base = _first_non_empty(
-        os.environ.get('SkillEvolve_EMBEDDING_BASE_URL'),
-        os.environ.get('OPENAI_API_BASE_URL'),
-        os.environ.get('SkillEvolve_BASE_URL'),
-    )
+    emb_key, emb_base = _api_pair(_EMB_KEY_ENVS, _EMB_URL_ENVS)
     emb_model = _first_non_empty(os.environ.get('SkillEvolve_EMBEDDING_MODEL'), PRIMARY_EMBEDDING_MODEL)
     return emb_key, emb_base, emb_model
 
 
 def _llm_credentials() -> tuple[str, str]:
-    return (
-        _first_non_empty(os.environ.get('OPENAI_API_KEY'), os.environ.get('SkillEvolve_API_KEY')),
-        _first_non_empty(os.environ.get('OPENAI_API_BASE_URL'), os.environ.get('SkillEvolve_BASE_URL')),
-    )
+    return _api_pair(_CHAT_KEY_ENVS, _CHAT_URL_ENVS)
 
 
 def _default_model(model_hint: Optional[str]) -> str:
@@ -117,9 +126,12 @@ def _profile_auto(model: Optional[str]) -> ProviderProfile:
 
 
 def _profile_deepseek(model: Optional[str]) -> ProviderProfile:
-    api_key = _first_non_empty(os.environ.get('DEEPSEEK_API_KEY'))
-    base_url = _first_non_empty(os.environ.get('DEEPSEEK_API_BASE_URL'), DEEPSEEK_OPENAI_COMPAT_BASE)
-    if not base_url.endswith('/v1'):
+    api_key, base_url = _api_pair(
+        ('DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'SkillEvolve_API_KEY'),
+        ('DEEPSEEK_API_BASE_URL', 'OPENAI_API_BASE_URL', 'SkillEvolve_BASE_URL', 'OPENAI_BASE_URL'),
+        default_url=DEEPSEEK_OPENAI_COMPAT_BASE,
+    )
+    if base_url and not base_url.endswith('/v1'):
         base_url = base_url.rstrip('/') + '/v1'
     emb_key, emb_base, emb_model = _embedding_credentials()
     return ProviderProfile(
@@ -134,16 +146,32 @@ def _profile_deepseek(model: Optional[str]) -> ProviderProfile:
 
 
 def _profile_openrouter(model: Optional[str]) -> ProviderProfile:
-    api_key = _first_non_empty(os.environ.get('OPENROUTER_API_KEY'))
-    base_url = _first_non_empty(os.environ.get('OPENROUTER_API_BASE_URL'), OPENROUTER_DEFAULT_BASE)
+    api_key, base_url = _api_pair(
+        ('OPENROUTER_API_KEY', 'OPENAI_API_KEY', 'SkillEvolve_API_KEY'),
+        ('OPENROUTER_API_BASE_URL', 'OPENAI_API_BASE_URL', 'SkillEvolve_BASE_URL', 'OPENAI_BASE_URL'),
+        default_url=OPENROUTER_DEFAULT_BASE,
+    )
+    emb_key, emb_base, emb_model = _embedding_credentials()
+    separate_embedding = bool(
+        os.environ.get('SkillEvolve_EMBEDDING_API_KEY', '').strip()
+        or os.environ.get('SkillEvolve_EMBEDDING_BASE_URL', '').strip()
+    )
+    if separate_embedding:
+        final_emb_key = emb_key
+        final_emb_base = emb_base
+        final_emb_model = emb_model
+    else:
+        final_emb_key = api_key
+        final_emb_base = base_url
+        final_emb_model = resolve_openrouter_embedding_model()
     return ProviderProfile(
         name='openrouter',
         api_key=api_key,
         base_url=base_url,
         model=_first_non_empty(model, os.environ.get('OPENROUTER_MODEL'), 'openai/gpt-4.1'),
-        embedding_api_key=api_key,
-        embedding_base_url=base_url,
-        embedding_model='openai/text-embedding-3-small',
+        embedding_api_key=final_emb_key,
+        embedding_base_url=final_emb_base,
+        embedding_model=final_emb_model,
     )
 
 
@@ -198,9 +226,19 @@ def sync_config_from_profile(config: Any, profile: ProviderProfile) -> None:
 def validate_profile(profile: ProviderProfile) -> List[str]:
     issues: List[str] = []
     if not profile.api_key:
-        issues.append(f'{profile.name}: missing API key (set OPENAI_API_KEY)')
+        if profile.name == 'deepseek':
+            issues.append('deepseek: missing API key (set DEEPSEEK_API_KEY or OPENAI_API_KEY)')
+        elif profile.name == 'openrouter':
+            issues.append('openrouter: missing API key (set OPENROUTER_API_KEY or OPENAI_API_KEY)')
+        else:
+            issues.append(f'{profile.name}: missing API key (set OPENAI_API_KEY)')
     if not profile.base_url:
-        issues.append(f'{profile.name}: missing base URL (set OPENAI_API_BASE_URL)')
+        if profile.name == 'deepseek':
+            issues.append('deepseek: missing base URL (set DEEPSEEK_API_BASE_URL or OPENAI_API_BASE_URL)')
+        elif profile.name == 'openrouter':
+            issues.append('openrouter: missing base URL (set OPENROUTER_API_BASE_URL or OPENAI_API_BASE_URL)')
+        else:
+            issues.append(f'{profile.name}: missing base URL (set OPENAI_API_BASE_URL)')
     if not profile.model:
         issues.append(f'{profile.name}: missing model id')
     return issues
