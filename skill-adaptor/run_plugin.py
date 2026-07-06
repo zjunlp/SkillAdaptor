@@ -27,7 +27,7 @@ def _default_workspace() -> Path:
 def parse_init_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Initialize SkillAdaptor workspace')
     parser.add_argument('--workspace', type=str, default=str(_default_workspace()))
-    parser.add_argument('--benchmark', default='pinchbench', choices=['pinchbench', 'claw-eval', 'webshop'])
+    parser.add_argument('--benchmark', default='workspace', choices=['workspace', 'pinchbench', 'claw-eval', 'webshop'])
     parser.add_argument('--harness', default='openclaw', choices=['openclaw', 'claude-code', 'codex', 'hermes'])
     parser.add_argument('--provider', default='auto', help='LLM backend: auto (default), deepseek, openrouter')
     parser.add_argument('--model', default='gpt-4.1')
@@ -41,7 +41,7 @@ def parse_run_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='SkillAdaptor OpenClaw/Claude Code plugin runner')
     parser.add_argument('--workspace', type=str, default=str(_default_workspace()))
     parser.add_argument('--manifest', type=str, default=None)
-    parser.add_argument('--env', choices=['pinchbench', 'claw-eval', 'webshop', 'auto'], default='auto')
+    parser.add_argument('--env', choices=['workspace', 'pinchbench', 'claw-eval', 'webshop', 'auto'], default='auto')
     parser.add_argument('--model', type=str, default=None)
     parser.add_argument('--provider', default=None, help='LLM backend: auto (default), deepseek, openrouter')
     parser.add_argument('--max-iterations', type=int, default=None)
@@ -155,6 +155,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         env = spec.benchmark_key
     if manifest.benchmark in ('claw-eval', 'claw_eval'):
         env = 'claw-eval'
+    elif manifest.benchmark in ('workspace', 'openclaw-generic', 'openclaw'):
+        env = 'workspace'
     max_iter = args.max_iterations
     if max_iter is None and project:
         max_iter = project.max_iterations

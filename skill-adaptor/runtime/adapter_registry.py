@@ -20,6 +20,8 @@ def resolve_adapter(env: Optional[str]=None, *, prefer_openclaw: bool=True) -> A
         return AdapterSpec('claw-eval', 'claw-eval', 'run_claw_eval', 'CLAW_EVAL_PATH')
     if key in ('webshop', 'ws'):
         return AdapterSpec('webshop', 'webshop', 'run_webshop', 'WEBSHOP_PATH')
+    if key in ('workspace', 'openclaw-generic', 'openclaw'):
+        return AdapterSpec('workspace', 'workspace', 'run_workspace', None)
     if not key and os.environ.get('PINCHBENCH_PATH'):
         return AdapterSpec('pinchbench', 'pinchbench', 'run_pinchbench', 'PINCHBENCH_PATH')
     if not key and os.environ.get('CLAW_EVAL_PATH'):
@@ -27,12 +29,12 @@ def resolve_adapter(env: Optional[str]=None, *, prefer_openclaw: bool=True) -> A
     if not key and os.environ.get('WEBSHOP_PATH'):
         return AdapterSpec('webshop', 'webshop', 'run_webshop', 'WEBSHOP_PATH')
     if prefer_openclaw:
-        return AdapterSpec('openclaw-generic', 'openclaw-generic', 'run_pinchbench', 'PINCHBENCH_PATH')
+        return AdapterSpec('workspace', 'workspace', 'run_workspace', None)
     raise ValueError('Cannot resolve adapter: set --env or PINCHBENCH_PATH / CLAW_EVAL_PATH / WEBSHOP_PATH')
 
 def get_run_callable(spec: AdapterSpec) -> Callable:
-    from run_skillevolve import run_claw_eval, run_pinchbench, run_webshop
-    mapping = {'run_pinchbench': run_pinchbench, 'run_claw_eval': run_claw_eval, 'run_webshop': run_webshop}
+    from run_skillevolve import run_claw_eval, run_pinchbench, run_webshop, run_workspace
+    mapping = {'run_pinchbench': run_pinchbench, 'run_claw_eval': run_claw_eval, 'run_webshop': run_webshop, 'run_workspace': run_workspace}
     fn = mapping.get(spec.run_fn_name)
     if fn is None:
         raise ValueError(f'Unknown run function: {spec.run_fn_name}')

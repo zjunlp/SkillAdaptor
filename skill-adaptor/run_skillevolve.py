@@ -277,6 +277,158 @@ def run_claw_eval(args, config):
         result['held_out_test'] = {'success_rate': 0.0, 'avg_score': 0.0, 'sample_size': 0}
     return result
 
+def run_workspace(args, config):
+    from core.adapter_hints import activate_benchmark_hints
+    from runtime.workspace_executor import WorkspaceExecutor
+
+    activate_benchmark_hints('generic')
+    print('\n' + '=' * 60)
+    print('SkillEvolve - Workspace Plugin Environment')
+    print('=' * 60)
+    workspace = getattr(config, 'program_workspace', None)
+    if not workspace:
+        raise ValueError('Workspace path missing on config.program_workspace')
+    workspace = Path(workspace)
+    artifact_dir = config.artifact_dir
+    llm_client = build_openai_client(config)
+    harness = get_harness(getattr(config, 'agent_harness', None), project_root=workspace)
+    executor = WorkspaceExecutor(
+        workspace,
+        artifact_dir=artifact_dir,
+        harness_name=getattr(config, 'agent_harness', None) or 'openclaw',
+        harness=harness,
+        api_key=config.api_key,
+        base_url=config.base_url,
+        model=config.model,
+    )
+    all_tasks = executor.list_tasks()
+    if not all_tasks:
+        raise ValueError(f'No workspace tasks in {workspace / "input_task"}. Add *.md briefs.')
+    if not args.task_manifest:
+        raise ValueError('Workspace runs require --task-manifest')
+    manifest_data = load_task_manifest(args.task_manifest)
+    training_tasks = list(manifest_data.get('input_tasks') or [])
+    validation_tasks = list(manifest_data.get('validation_tasks') or [])
+    test_tasks = list(manifest_data.get('test_tasks') or [])
+    if not training_tasks:
+        raise ValueError('task manifest must include non-empty input_tasks')
+    if not validation_tasks:
+        validation_tasks = training_tasks[:1]
+    print(f'[Setup] Task manifest: {args.task_manifest}')
+    print(f'[Setup] input_tasks: {len(training_tasks)}')
+    print(f'[Setup] validation_tasks: {len(validation_tasks)}')
+    print(f'[Setup] test_tasks: {len(test_tasks)}')
+    overlap = set(training_tasks) & set(validation_tasks)
+    if overlap and (not manifest_data.get('allow_train_val_overlap')):
+        raise ValueError(f'Data leakage detected: {sorted(overlap)}')
+    ws_tasks_root = executor.tasks_dir
+    from runtime.retrieval_index import build_retrieval_index
+    retrieval_index = build_retrieval_index(manifest_data, tasks_dir=ws_tasks_root, config=config)
+    policy_adapter = PinchBenchPolicyAdapter(
+        artifact_dir,
+        api_key=config.embedding_api_key,
+        base_url=config.embedding_base_url,
+        embedding_model=config.embedding_model,
+        similarity_threshold=config.skill_match_threshold,
+        cross_task_threshold=config.cross_task_match_threshold,
+        retrieval_index=retrieval_index,
+    )
+
+    def _task_category(task_id: str) -> str:
+        return retrieval_index.category_of(task_id, ws_tasks_root)
+
+    orchestrator = SkillEvolveOrchestrator(
+        config,
+        llm_client=llm_client,
+        benchmark_constraints=policy_adapter.get_revision_constraints(),
+        task_category_fn=_task_category,
+    )
+    print('[Setup] Workspace executor with generic adapter hints')
+
+    def eval_skill_bank(skill_bank, scope_tasks: Optional[List[str]]=None, baseline_metrics=None, candidate_skill_id: Optional[str]=None):
+        return evaluate_pinchbench_bank(
+            executor,
+            policy_adapter,
+            validation_tasks,
+            skill_bank,
+            tasks_dir=executor.tasks_dir,
+            template=args.skill_template,
+            model=config.model,
+            scope_tasks=scope_tasks,
+            global_prior=orchestrator.global_prior,
+            embedding_api_key=config.embedding_api_key,
+            embedding_base_url=config.embedding_base_url,
+            embedding_model=config.embedding_model,
+            candidate_skill_id=candidate_skill_id,
+            baseline_metrics=baseline_metrics,
+        )
+
+    def execute_tasks_with_current_skills(tasks, use_cache=False, **kwargs):
+        current_bank = {s.id: s for s in orchestrator.skill_bank.list_skills()}
+        injected = configure_pinchbench_skill_injection(
+            executor,
+            policy_adapter,
+            tasks,
+            current_bank,
+            tasks_dir=executor.tasks_dir,
+            template=args.skill_template,
+            model=config.model,
+            global_prior=orchestrator.global_prior,
+            embedding_api_key=config.embedding_api_key,
+            embedding_base_url=config.embedding_base_url,
+            embedding_model=config.embedding_model,
+        )
+        if injected:
+            print(f'    [Skills] Configured for {injected} task(s)')
+        return executor.execute_tasks(tasks, model=config.model)
+
+    orchestrator._execute_tasks = execute_tasks_with_current_skills
+    print('\n[Run] Starting SkillEvolve...')
+    result = orchestrator.run(
+        training_tasks=training_tasks,
+        validation_tasks=validation_tasks,
+        eval_func=eval_skill_bank,
+        initial_skill_bank=None,
+    )
+    print('\n[Save] Saving results...')
+    orchestrator.save_skill_bank()
+    if test_tasks:
+        final_bank = {s.id: s for s in orchestrator.skill_bank.list_skills()}
+        injected = configure_pinchbench_skill_injection(
+            executor,
+            policy_adapter,
+            test_tasks,
+            final_bank,
+            tasks_dir=executor.tasks_dir,
+            template=args.skill_template,
+            model=config.model,
+            global_prior=orchestrator.global_prior,
+            embedding_api_key=config.embedding_api_key,
+            embedding_base_url=config.embedding_base_url,
+            embedding_model=config.embedding_model,
+        )
+        print(f'[Held-out Test] Injected skills for {injected} tasks')
+        trajectories = executor.execute_tasks(test_tasks, model=config.model)
+        if trajectories:
+            success_count = sum((1 for t in trajectories if t.success))
+            total_score = sum((t.total_reward for t in trajectories))
+            result['held_out_test'] = {
+                'success_rate': success_count / len(trajectories),
+                'avg_score': total_score / len(trajectories),
+                'sample_size': len(trajectories),
+                'task_results': {t.task_id: {'success': t.success, 'score': t.total_reward} for t in trajectories},
+            }
+        else:
+            result['held_out_test'] = {'success_rate': 0.0, 'avg_score': 0.0, 'sample_size': 0}
+        print(
+            f"[Test] Held-out test metrics: success_rate={result['held_out_test'].get('success_rate', 0.0):.3f}, "
+            f"avg_score={result['held_out_test'].get('avg_score', 0.0):.3f}, "
+            f"sample_size={result['held_out_test'].get('sample_size', 0)}"
+        )
+    else:
+        result['held_out_test'] = {'success_rate': 0.0, 'avg_score': 0.0, 'sample_size': 0}
+    return result
+
 def setup_config(args):
     profile = resolve_and_apply(getattr(args, 'provider', None), getattr(args, 'model', None))
     config = load_config(use_env=True)
@@ -458,13 +610,13 @@ def run_pinchbench(args, config):
         validation_tasks = sorted(shuffled[:val_count])
         training_tasks = sorted(shuffled[val_count:val_count + train_count])
         test_tasks = sorted(shuffled[val_count + train_count:])
-    if not training_tasks:
-        raise ValueError('No training tasks selected for PinchBench.')
-    if not args.task_manifest:
-        print(f'[Setup] Total tasks: {len(all_tasks)}')
-        print(f'[Setup] Training tasks: {len(training_tasks)}')
-        print(f'[Setup] Validation tasks: {len(validation_tasks)}')
-        print(f'[Setup] Held-out test tasks: {len(test_tasks)}')
+        if not training_tasks:
+            raise ValueError('No training tasks selected for PinchBench.')
+        if not args.task_manifest:
+            print(f'[Setup] Total tasks: {len(all_tasks)}')
+            print(f'[Setup] Training tasks: {len(training_tasks)}')
+            print(f'[Setup] Validation tasks: {len(validation_tasks)}')
+            print(f'[Setup] Held-out test tasks: {len(test_tasks)}')
     overlap = set(training_tasks) & set(validation_tasks)
     if overlap and (not (manifest_data and manifest_data.get('allow_train_val_overlap'))):
         raise ValueError(f'Data leakage detected: {sorted(overlap)}')
@@ -547,6 +699,8 @@ def main():
             result = run_webshop(args, config)
         elif args.env == 'claw-eval':
             result = run_claw_eval(args, config)
+        elif args.env == 'workspace':
+            result = run_workspace(args, config)
         else:
             result = run_pinchbench(args, config)
         print('\n✓ SkillEvolve completed successfully!')

@@ -25,6 +25,8 @@ def activate_benchmark_hints(benchmark: Optional[str]) -> None:
     key = (benchmark or 'generic').strip().lower()
     if key in ('openclaw-generic', 'pb'):
         key = 'pinchbench'
+    if key in ('workspace', 'openclaw'):
+        key = 'generic'
     _ACTIVE = key if key in _REGISTRY else 'generic' if key == 'generic' else _ACTIVE
 
 def get_active_hints() -> AdapterHints:
