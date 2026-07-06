@@ -1,4 +1,4 @@
-"""WebShop Adapter for SkillEvolve"""
+"""WebShop Adapter for SkillAdaptor"""
 
 import json
 import os

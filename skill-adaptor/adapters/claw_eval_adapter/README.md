@@ -1,6 +1,6 @@
 # Claw-Eval Adapter
 
-This directory contains claw-eval specific patches and utilities for SkillEvolve.
+This directory contains claw-eval specific patches and utilities for SkillAdaptor.
 
 ## Purpose
 
@@ -45,13 +45,13 @@ claw_config = ClawEvalConfig.from_base(base_config)
 ### Integration with Orchestrator
 
 ```python
-from core.orchestrator import SkillEvolveOrchestrator
+from core.orchestrator import SkillAdaptorOrchestrator
 from adapters.claw_eval_adapter import ClawEvalConfig, ClawEvalGenerator
 
 config = ClawEvalConfig()
 generator = ClawEvalGenerator()
 
-orchestrator = SkillEvolveOrchestrator(config=config)
+orchestrator = SkillAdaptorOrchestrator(config=config)
 # Override generator with claw-eval version
 orchestrator.generator = generator
 ```
@@ -105,6 +105,6 @@ avg_score_delta_threshold: float = 0.01  # Was 0.05
 ## Notes
 
 This adapter is specific to claw-eval. For other benchmarks, use the core
-SkillEvolve classes directly unless you encounter similar issues with:
+SkillAdaptor classes directly unless you encounter similar issues with:
 1. LLM outputs containing thinking JSON
 2. Need for lower validation thresholds

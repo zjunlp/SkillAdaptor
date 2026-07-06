@@ -91,6 +91,7 @@ plugin/workspace_test_init/
 **/*_trajectory.json
 **/*_annotated.json
 **/rejection_history.json
+**/SkillAdaptor_report.json
 **/SkillEvolve_report.json
 **/skill_bank*.json
 **/active_manifest.json
@@ -125,6 +126,9 @@ build/
 Thumbs.db
 
 # --- Legacy output dirs ---
+SkillAdaptor_output/
+SkillAdaptor_artifacts/
+SkillAdaptor_results/
 SkillEvolve_output/
 SkillEvolve_artifacts/
 SkillEvolve_results/

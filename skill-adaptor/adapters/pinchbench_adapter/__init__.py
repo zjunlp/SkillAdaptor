@@ -1,4 +1,4 @@
-"""PinchBench Adapter for SkillEvolve"""
+"""PinchBench Adapter for SkillAdaptor"""
 
 from .executor import PinchBenchExecutor
 from .parser import TranscriptParser

@@ -197,7 +197,7 @@ def check_trajectory_fidelity(trajectory: 'Trajectory') -> FidelityReport:
 
 def exec_max_retries() -> int:
     import os
-    raw = os.environ.get('SkillEvolve_EXEC_MAX_RETRIES', os.environ.get('SKILL_ADAPTOR_EXEC_MAX_RETRIES', '3'))
+    raw = os.environ.get('SkillAdaptor_EXEC_MAX_RETRIES', os.environ.get('SKILL_ADAPTOR_EXEC_MAX_RETRIES', '3'))
     try:
         return max(1, int(raw))
     except ValueError:

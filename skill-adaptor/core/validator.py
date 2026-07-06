@@ -6,7 +6,7 @@ from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 from .types import Skill, ValidationResult
 from .validation_metrics import resolve_adoption_pair
 if TYPE_CHECKING:
-    from .config import SkillEvolveConfig
+    from .config import SkillAdaptorConfig
 
 @dataclass
 class ValidationConfig:

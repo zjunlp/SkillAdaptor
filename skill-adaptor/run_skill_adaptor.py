@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Main SkillEvolve Runner"""
+"""Main SkillAdaptor Runner"""
 
 import argparse
 import os
@@ -11,18 +11,18 @@ sys.path.insert(0, str(Path(__file__).parent))
 from core.config import load_config
 from core.provider_config import resolve_and_apply, sync_config_from_profile, describe_profile
 from core.llm_factory import build_openai_client
-from core.orchestrator import SkillEvolveOrchestrator
+from core.orchestrator import SkillAdaptorOrchestrator
 from core.types import Step, Trajectory
 from adapters.pinchbench_adapter import PinchBenchExecutor, PinchBenchPolicyAdapter
 from adapters.webshop_adapter import WebShopEnvWrapper, WebShopEvaluator, SkillAugmentedLLMPolicy
 from runtime.harness import get_harness
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Run SkillEvolve Training-Free Skill Evolution')
+    parser = argparse.ArgumentParser(description='Run SkillAdaptor Training-Free Skill Evolution')
     parser.add_argument('--env', choices=['webshop', 'pinchbench', 'claw-eval'], default='webshop', help='Environment to run on')
     parser.add_argument('--provider', default=None, help='LLM backend: auto (default), deepseek, openrouter')
     parser.add_argument('--model', type=str, default=None, help='Specific model name (overrides default)')
-    parser.add_argument('--max-iterations', type=int, default=10, help='Maximum SkillEvolve iterations')
+    parser.add_argument('--max-iterations', type=int, default=10, help='Maximum SkillAdaptor iterations')
     parser.add_argument('--training-size', type=int, default=500, help='Number of training examples')
     parser.add_argument('--validation-size', type=int, default=100, help='Number of validation examples')
     parser.add_argument('--output', type=str, default='./results', help='Output directory')
@@ -197,7 +197,7 @@ def run_claw_eval(args, config):
     from adapters.claw_eval_adapter.hints import install_claw_eval_hints
     install_claw_eval_hints()
     print('\n' + '=' * 60)
-    print('SkillEvolve - Claw-Eval Environment')
+    print('SkillAdaptor - Claw-Eval Environment')
     print('=' * 60)
     ok, probe_out = ensure_gateway_running()
     if not ok:
@@ -247,7 +247,7 @@ def run_claw_eval(args, config):
 
     def eval_skill_bank(skill_bank, scope_tasks: Optional[List[str]]=None, baseline_metrics=None, candidate_skill_id: Optional[str]=None):
         return evaluate_pinchbench_bank(executor, policy_adapter, validation_tasks, skill_bank, tasks_dir=executor.tasks_dir, template=args.skill_template, model=config.model, scope_tasks=scope_tasks, embedding_api_key=config.embedding_api_key, embedding_base_url=config.embedding_base_url, embedding_model=config.embedding_model, candidate_skill_id=candidate_skill_id, baseline_metrics=baseline_metrics)
-    orchestrator = SkillEvolveOrchestrator(config, llm_client=llm_client, benchmark_constraints=policy_adapter.get_revision_constraints(), task_category_fn=_task_category)
+    orchestrator = SkillAdaptorOrchestrator(config, llm_client=llm_client, benchmark_constraints=policy_adapter.get_revision_constraints(), task_category_fn=_task_category)
     print('[Setup] Injected Claw-Eval benchmark constraints into Reviser')
 
     def execute_tasks_with_current_skills(tasks, use_cache=False, **kwargs):
@@ -257,7 +257,7 @@ def run_claw_eval(args, config):
             print(f'    [Skills] Configured for {injected} task(s)')
         return executor.execute_tasks(tasks, model=config.model)
     orchestrator._execute_tasks = execute_tasks_with_current_skills
-    print('\n[Run] Starting SkillEvolve...')
+    print('\n[Run] Starting SkillAdaptor...')
     result = orchestrator.run(training_tasks=training_tasks, validation_tasks=validation_tasks, eval_func=eval_skill_bank, initial_skill_bank=None)
     print('\n[Save] Saving results...')
     orchestrator.save_skill_bank()
@@ -283,7 +283,7 @@ def run_workspace(args, config):
 
     activate_benchmark_hints('generic')
     print('\n' + '=' * 60)
-    print('SkillEvolve - Workspace Plugin Environment')
+    print('SkillAdaptor - Workspace Plugin Environment')
     print('=' * 60)
     workspace = getattr(config, 'program_workspace', None)
     if not workspace:
@@ -337,7 +337,7 @@ def run_workspace(args, config):
     def _task_category(task_id: str) -> str:
         return retrieval_index.category_of(task_id, ws_tasks_root)
 
-    orchestrator = SkillEvolveOrchestrator(
+    orchestrator = SkillAdaptorOrchestrator(
         config,
         llm_client=llm_client,
         benchmark_constraints=policy_adapter.get_revision_constraints(),
@@ -383,7 +383,7 @@ def run_workspace(args, config):
         return executor.execute_tasks(tasks, model=config.model)
 
     orchestrator._execute_tasks = execute_tasks_with_current_skills
-    print('\n[Run] Starting SkillEvolve...')
+    print('\n[Run] Starting SkillAdaptor...')
     result = orchestrator.run(
         training_tasks=training_tasks,
         validation_tasks=validation_tasks,
@@ -438,7 +438,7 @@ def setup_config(args):
     config.results_dir = Path(args.output) / args.env
     config.skill_template = args.skill_template
     if not config.api_key:
-        raise ValueError('Missing API key. Set SkillEvolve_API_KEY in secrets/.env')
+        raise ValueError('Missing API key. Set SkillAdaptor_API_KEY in secrets/.env')
     config.create_directories()
     config._llm_profile = profile  # type: ignore[attr-defined]
     return config
@@ -461,7 +461,7 @@ def run_webshop(args, config):
     from adapters.webshop_adapter.hints import install_webshop_hints
     install_webshop_hints()
     print('\n' + '=' * 60)
-    print('SkillEvolve - WebShop Environment')
+    print('SkillAdaptor - WebShop Environment')
     print('=' * 60)
     print('\n[Setup] Initializing WebShop environment...')
     webshop_path = os.environ.get('WEBSHOP_PATH')
@@ -510,8 +510,8 @@ def run_webshop(args, config):
         manager = SkillBankManager()
         manager.load(args.skills)
         initial_bank = {s.id: s for s in manager.list_skills()}
-    print('\n[Run] Starting SkillEvolve...')
-    orchestrator = SkillEvolveOrchestrator(config, llm_client=build_openai_client(config), benchmark_constraints=WebShopEnvWrapper.get_revision_constraints())
+    print('\n[Run] Starting SkillAdaptor...')
+    orchestrator = SkillAdaptorOrchestrator(config, llm_client=build_openai_client(config), benchmark_constraints=WebShopEnvWrapper.get_revision_constraints())
     print('[Setup] Injected WebShop benchmark constraints into Reviser')
 
     def execute_webshop_tasks(goal_indices, use_cache=False, **kwargs):
@@ -555,7 +555,7 @@ def run_webshop(args, config):
 def run_pinchbench(args, config):
     from core.openclaw_hygiene import ensure_gateway_running
     print('\n' + '=' * 60)
-    print('SkillEvolve - PinchBench Environment')
+    print('SkillAdaptor - PinchBench Environment')
     print('=' * 60)
     ok, probe_out = ensure_gateway_running()
     if not ok:
@@ -640,8 +640,8 @@ def run_pinchbench(args, config):
 
     def _task_category(task_id: str) -> str:
         return retrieval_index.category_of(task_id, pb_tasks_root)
-    print('\n[Run] Starting SkillEvolve...')
-    orchestrator = SkillEvolveOrchestrator(config, llm_client=llm_client, benchmark_constraints=policy_adapter.get_revision_constraints(), task_category_fn=_task_category)
+    print('\n[Run] Starting SkillAdaptor...')
+    orchestrator = SkillAdaptorOrchestrator(config, llm_client=llm_client, benchmark_constraints=policy_adapter.get_revision_constraints(), task_category_fn=_task_category)
     print('[Setup] Injected PinchBench benchmark constraints into Reviser')
 
     def eval_skill_bank(skill_bank, scope_tasks: Optional[List[str]]=None, baseline_metrics=None, candidate_skill_id: Optional[str]=None):
@@ -682,7 +682,7 @@ def main():
         args.training_size = 10
         args.validation_size = 5
     print('\n' + '=' * 60)
-    print('SkillEvolve - Training-Free Skill Evolution')
+    print('SkillAdaptor - Training-Free Skill Evolution')
     print('=' * 60)
     print(f'Environment: {args.env}')
     print(f'Provider: {args.provider}')
@@ -703,7 +703,7 @@ def main():
             result = run_workspace(args, config)
         else:
             result = run_pinchbench(args, config)
-        print('\n✓ SkillEvolve completed successfully!')
+        print('\n✓ SkillAdaptor completed successfully!')
         return 0
     except KeyboardInterrupt:
         print('\n\nInterrupted by user')

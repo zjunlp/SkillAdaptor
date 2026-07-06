@@ -9,7 +9,7 @@ description: |
   Prefer SkillNet ($skillnet) search first; use this skill when failures need verified adaptation.
   NOT for: packaging a chat log without re-execution (use skillnet create instead).
 metadata:
-  primaryEnv: SkillEvolve_API_KEY
+  primaryEnv: SkillAdaptor_API_KEY
   install:
     - command: pip install -r requirements.txt
       label: Install SkillAdaptor Python deps (run from skillAdaptorRoot)
@@ -34,7 +34,7 @@ Evolve **SKILL.md** skills from **failure trajectories** with **step-level fault
 
 - Python 3.10+
 - **`SKILL_ADAPTOR_ROOT`**: directory containing `run_plugin.py` ([zjunlp/SkillAdaptor](https://github.com/zjunlp/SkillAdaptor) → `skill-adaptor/`)
-- LLM: `SkillEvolve_API_KEY` / `SkillEvolve_BASE_URL` / `SkillEvolve_MODEL`
+- LLM: `SkillAdaptor_API_KEY` / `SkillAdaptor_BASE_URL` / `SkillAdaptor_MODEL`
 - Optional executors: `PINCHBENCH_PATH`, `WEBSHOP_PATH`, `CLAW_EVAL_PATH`
 
 Validate this skill package (offline):
@@ -112,7 +112,7 @@ Report: `<workspace>/.skill-adaptor/skillnet/post_adopt_report.json`
 1. **Injected Q′ (sole gate)** — tasks where the candidate was injected and re-run.
 2. **Frozen tasks** — baseline scores kept; no-regression check only.
 
-- Shell / `command.txt` tasks: injected text embeds the **full task prompt** + anti-placeholder rules; executor **retries** (default 3×) when output contains placeholders or ignores the prompt (`SkillEvolve_EXEC_MAX_RETRIES`).
+- Shell / `command.txt` tasks: injected text embeds the **full task prompt** + anti-placeholder rules; executor **retries** (default 3×) when output contains placeholders or ignores the prompt (`SkillAdaptor_EXEC_MAX_RETRIES`).
 
 ## References
 

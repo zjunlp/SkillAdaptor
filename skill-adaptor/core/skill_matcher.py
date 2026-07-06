@@ -9,6 +9,17 @@ from typing import Any, Dict, List, Optional, Tuple
 from .types import Skill
 from .llm_retry import call_with_retries
 from .embedding_config import PRIMARY_EMBEDDING_MODEL, format_embedding_error, resolve_embedding_model
+from core.api_env import (
+    CHAT_MODEL_VAR,
+    EMBEDDING_API_KEY_VAR,
+    EMBEDDING_BASE_URL_VAR,
+    EMBEDDING_MODEL_VAR,
+    chat_key_envs,
+    chat_url_envs,
+    embedding_key_envs,
+    embedding_url_envs,
+    first_env,
+)
 
 class SemanticSkillMatcher:
     DEFAULT_API_MODEL = PRIMARY_EMBEDDING_MODEL
@@ -18,8 +29,8 @@ class SemanticSkillMatcher:
         self.similarity_threshold = similarity_threshold
         self.model_name = resolve_embedding_model(model_name)
         self.embedding_client = embedding_client
-        self.api_key = api_key or os.environ.get('SkillEvolve_EMBEDDING_API_KEY', '')
-        self.base_url = base_url or os.environ.get('SkillEvolve_EMBEDDING_BASE_URL', '')
+        self.api_key = api_key or first_env(*embedding_key_envs())
+        self.base_url = base_url or first_env(*embedding_url_envs())
 
     def _embed_via_api(self, texts: List[str]):
         import numpy as np
@@ -42,8 +53,12 @@ class SemanticSkillMatcher:
         if not texts:
             return np.array([])
         if self.embedding_client is None and (not (self.api_key and self.base_url)):
-            raise RuntimeError('Embedding API not configured. Set SkillEvolve_EMBEDDING_API_KEY and SkillEvolve_EMBEDDING_BASE_URL, or pass embedding_client.')
-        max_retries = int(os.environ.get('SkillEvolve_MAX_RETRIES', os.environ.get('MAX_RETRIES', '5')))
+            raise RuntimeError(
+                f'Embedding API not configured. Set {EMBEDDING_API_KEY_VAR} and {EMBEDDING_BASE_URL_VAR}, or pass embedding_client.'
+            )
+        max_retries = int(
+            first_env('SkillAdaptor_MAX_RETRIES', 'SkillEvolve_MAX_RETRIES', 'MAX_RETRIES') or '5'
+        )
         try:
             return call_with_retries(lambda: self._embed_via_api(texts), max_retries=max_retries, context=f'Embedding API (model={self.model_name!r})')
         except Exception as exc:

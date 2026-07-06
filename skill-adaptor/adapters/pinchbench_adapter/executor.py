@@ -11,7 +11,16 @@ import platform
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from core.types import Trajectory, Step, Skill
-from core.api_env import inject_benchmark_child_env, chat_key_envs, chat_url_envs, first_env
+from core.api_env import (
+    EMBEDDING_MODEL_VAR,
+    embedding_key_envs,
+    embedding_url_envs,
+    first_env,
+    inject_benchmark_child_env,
+    chat_key_envs,
+    chat_url_envs,
+    chat_model_envs,
+)
 from core.openclaw_agent_setup import prepare_openclaw_for_model
 from adapters.errors import TaskExecutionError, PlaceholderDeliverableError
 from .trajectory_extractor import extract_trajectory_for_task, save_trajectory
@@ -56,7 +65,12 @@ class PinchBenchExecutor:
             self._step_retriever = None
             self._skill_bank_dict = {}
             return
-        matcher = SemanticSkillMatcher(model_name=embedding_model or os.environ.get('SkillEvolve_EMBEDDING_MODEL'), api_key=api_key or os.environ.get('SkillEvolve_EMBEDDING_API_KEY', ''), base_url=base_url or os.environ.get('SkillEvolve_EMBEDDING_BASE_URL', ''), similarity_threshold=0.35)
+        matcher = SemanticSkillMatcher(
+            model_name=embedding_model or first_env(EMBEDDING_MODEL_VAR, 'SkillEvolve_EMBEDDING_MODEL'),
+            api_key=api_key or first_env(*embedding_key_envs()),
+            base_url=base_url or first_env(*embedding_url_envs()),
+            similarity_threshold=0.35,
+        )
         self._step_retriever = StepSkillRetriever(matcher, top_k=top_k)
         self._skill_bank_dict = dict(skill_bank)
         self._step_top_k = top_k
@@ -128,7 +142,7 @@ class PinchBenchExecutor:
     def _setup_env(self) -> Dict[str, str]:
         env = os.environ.copy()
         env['PYTHONPATH'] = str(self.pinchbench_path)
-        model = self.model or os.environ.get('SkillEvolve_MODEL') or os.environ.get('MODEL')
+        model = self.model or first_env(*chat_model_envs())
         inject_benchmark_child_env(env, api_key=self.api_key, base_url=self.base_url, model=model)
         env['PINCHBENCH_TIMEOUT'] = '1200'
         return env
@@ -201,7 +215,7 @@ class PinchBenchExecutor:
     def execute_task(self, task_id: str, model: Optional[str]=None, timeout: int=600, timeout_multiplier: float=2.0) -> Optional[Trajectory]:
         from core.prompt_fidelity import exec_max_retries
 
-        effective_model = model or self.model or os.environ.get('SkillEvolve_MODEL') or os.environ.get('MODEL', 'default')
+        effective_model = model or self.model or first_env(*chat_model_envs()) or 'default'
         if timeout == 600:
             timeout = int(os.environ.get('PINCHBENCH_EXECUTE_TIMEOUT', '1200'))
         full_agent_id = openclaw_agent_id(effective_model)

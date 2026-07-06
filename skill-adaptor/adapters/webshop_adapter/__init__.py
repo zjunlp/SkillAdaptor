@@ -1,4 +1,4 @@
-"""WebShop Adapter for Unified SkillEvolve"""
+"""WebShop Adapter for Unified SkillAdaptor"""
 
 from .env_wrapper import WebShopEnvWrapper
 from .llm_policy import SkillAugmentedLLMPolicy

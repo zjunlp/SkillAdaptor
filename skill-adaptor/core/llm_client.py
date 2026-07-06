@@ -1,4 +1,4 @@
-"""Unified LLM Client for SkillEvolve."""
+"""Unified LLM Client for SkillAdaptor."""
 
 from __future__ import annotations
 import json
@@ -7,7 +7,7 @@ import re
 import urllib.request
 from typing import Optional
 
-from core.api_env import chat_key_envs, chat_url_envs, first_env
+from core.api_env import CHAT_MODEL_VAR, chat_model_envs, first_env
 
 def _first_env(*keys: str) -> str:
     for key in keys:
@@ -16,12 +16,12 @@ def _first_env(*keys: str) -> str:
             return val
     return ''
 
-class SkillEvolveLLMClient:
+class SkillAdaptorLLMClient:
 
     def __init__(self, api_key: Optional[str]=None, base_url: Optional[str]=None, model: Optional[str]=None, provider: Optional[str]=None):
-        self.model = model or os.environ.get('SkillEvolve_MODEL', '')
+        self.model = model or first_env(*chat_model_envs())
         if not self.model:
-            raise ValueError('Model name must be provided via argument or SkillEvolve_MODEL environment variable')
+            raise ValueError(f'Model name must be provided via argument or {CHAT_MODEL_VAR} environment variable')
         self._model_lower = self.model.lower()
         self.api_key = api_key or first_env(*chat_key_envs())
         self.base_url = base_url or first_env(*chat_url_envs())
@@ -165,8 +165,8 @@ class SkillEvolveLLMClient:
                 pass
         raise ValueError(f'No valid JSON found in response: {content[:200]}...')
 
-def create_llm_client_from_config(config) -> SkillEvolveLLMClient:
-    return SkillEvolveLLMClient(
+def create_llm_client_from_config(config) -> SkillAdaptorLLMClient:
+    return SkillAdaptorLLMClient(
         api_key=getattr(config, 'api_key', None),
         base_url=getattr(config, 'base_url', None),
         model=getattr(config, 'model', None),

@@ -1,4 +1,4 @@
-"""Core type definitions for the SkillEvolve framework."""
+"""Core type definitions for the SkillAdaptor framework."""
 
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -163,7 +163,7 @@ class SkillInjection:
     transcript_event_index: int
     step_index: int
     skills: List[Dict[str, Any]]
-    source: str = 'SkillEvolve'
+    source: str = 'SkillAdaptor'
     ts_ms: Optional[int] = None
 
     def __post_init__(self):
@@ -175,7 +175,7 @@ class SkillInjection:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> SkillInjection:
-        return cls(transcript_event_index=data['transcript_event_index'], step_index=data['step_index'], skills=data['skills'], source=data.get('source', 'SkillEvolve'), ts_ms=data.get('ts_ms'))
+        return cls(transcript_event_index=data['transcript_event_index'], step_index=data['step_index'], skills=data['skills'], source=data.get('source', 'SkillAdaptor'), ts_ms=data.get('ts_ms'))
 
 @dataclass
 class SkillBank:

@@ -1,12 +1,12 @@
 """Claw-Eval Config Patch"""
 
-from core.config import SkillEvolveConfig
+from core.config import SkillAdaptorConfig
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 @dataclass
-class ClawEvalConfig(SkillEvolveConfig):
+class ClawEvalConfig(SkillAdaptorConfig):
     success_delta_threshold: float = 0.01
     avg_score_delta_threshold: float = 0.01
     k_reject_threshold: int = 3
@@ -14,7 +14,7 @@ class ClawEvalConfig(SkillEvolveConfig):
     results_dir: Path = field(default_factory=lambda: Path('./claw_eval_results'))
 
     @classmethod
-    def from_base(cls, base_config: SkillEvolveConfig) -> 'ClawEvalConfig':
+    def from_base(cls, base_config: SkillAdaptorConfig) -> 'ClawEvalConfig':
         import copy
         config_dict = {field.name: getattr(base_config, field.name) for field in base_config.__dataclass_fields__.values()}
         config_dict['success_delta_threshold'] = 0.01

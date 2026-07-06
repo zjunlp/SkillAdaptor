@@ -1,4 +1,4 @@
-"""Claw-Eval Adapter for SkillEvolve"""
+"""Claw-Eval Adapter for SkillAdaptor"""
 
 from .action_extractor import extract_action_content, extract_action_from_trajectory
 from .generator_patch import ClawEvalGenerator

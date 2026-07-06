@@ -1,4 +1,4 @@
-"""Advanced Prompt Engineering for SkillEvolve"""
+"""Advanced Prompt Engineering for SkillAdaptor"""
 
 from __future__ import annotations
 from dataclasses import dataclass

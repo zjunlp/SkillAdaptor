@@ -138,35 +138,35 @@ Two independent **API key + base URL** pairs. Endpoints use a compatible chat AP
 
 | Variable | Role |
 |----------|------|
-| `SkillEvolve_API_KEY` | Chat API key |
-| `SkillEvolve_BASE_URL` | Chat endpoint (relay / DeepSeek / Kimi / GLM — same pair) |
-| `SkillEvolve_MODEL` | Default model when `--model` omitted |
+| `SkillAdaptor_API_KEY` | Chat API key |
+| `SkillAdaptor_BASE_URL` | Chat endpoint (relay / DeepSeek / Kimi / GLM — same pair) |
+| `SkillAdaptor_MODEL` | Default model when `--model` omitted |
 
 **Embedding** (always separate — skill–task matching):
 
 | Variable | Role |
 |----------|------|
-| `SkillEvolve_EMBEDDING_API_KEY` | Embedding API key |
-| `SkillEvolve_EMBEDDING_BASE_URL` | Embedding endpoint |
-| `SkillEvolve_EMBEDDING_MODEL` | Model id (default `Qwen3-Embedding-8B`) |
+| `SkillAdaptor_EMBEDDING_API_KEY` | Embedding API key |
+| `SkillAdaptor_EMBEDDING_BASE_URL` | Embedding endpoint |
+| `SkillAdaptor_EMBEDDING_MODEL` | Model id (default `Qwen3-Embedding-8B`) |
 
 If embedding key/URL are omitted, chat credentials are used as fallback. Prefer setting the embedding pair explicitly when the embedding host differs from chat.
 
 ```bash
 # secrets/.env
 SkillAdaptor_PROVIDER=auto
-SkillEvolve_BASE_URL=https://your-relay.example.com/v1
-SkillEvolve_API_KEY=sk-...
-SkillEvolve_MODEL=gpt-4.1
+SkillAdaptor_BASE_URL=https://your-relay.example.com/v1
+SkillAdaptor_API_KEY=sk-...
+SkillAdaptor_MODEL=gpt-4.1
 
-SkillEvolve_EMBEDDING_API_KEY=sk-...
-SkillEvolve_EMBEDDING_BASE_URL=https://your-embedding.example.com/v1
-SkillEvolve_EMBEDDING_MODEL=Qwen3-Embedding-8B
+SkillAdaptor_EMBEDDING_API_KEY=sk-...
+SkillAdaptor_EMBEDDING_BASE_URL=https://your-embedding.example.com/v1
+SkillAdaptor_EMBEDDING_MODEL=Qwen3-Embedding-8B
 ```
 
-DeepSeek via relay (no extra provider vars): keep `SkillAdaptor_PROVIDER=auto`, point `SkillEvolve_BASE_URL` at DeepSeek, use `--model deepseek-chat`.
+DeepSeek via relay (no extra provider vars): keep `SkillAdaptor_PROVIDER=auto`, point `SkillAdaptor_BASE_URL` at DeepSeek, use `--model deepseek-chat`.
 
-After startup, `resolve_and_apply` writes the active chat pair to `SkillEvolve_API_KEY` / `SkillEvolve_BASE_URL` for downstream executors.
+After startup, `resolve_and_apply` writes the active chat pair to `SkillAdaptor_API_KEY` / `SkillAdaptor_BASE_URL` for downstream executors.
 
 ```bash
 . scripts/load_secrets.ps1   # or source scripts/load_secrets.sh
@@ -179,8 +179,8 @@ python run_plugin.py --workspace ../my-workspace --model kimi-k2.5
 
 | `SkillAdaptor_PROVIDER` | Key | Base URL | Notes |
 |-------------------------|-----|----------|-------|
-| `deepseek` | `DEEPSEEK_API_KEY` → else `SkillEvolve_API_KEY` | `DEEPSEEK_API_BASE_URL` → else `SkillEvolve_BASE_URL` | Compatible `/v1` API; default base `https://api.deepseek.com/v1` |
-| `openrouter` | `OPENROUTER_API_KEY` → else `SkillEvolve_API_KEY` | `OPENROUTER_API_BASE_URL` → else `SkillEvolve_BASE_URL` | Model ids use `vendor/model`; embedding falls back to gateway default when no separate embedding API |
+| `deepseek` | `DEEPSEEK_API_KEY` → else `SkillAdaptor_API_KEY` | `DEEPSEEK_API_BASE_URL` → else `SkillAdaptor_BASE_URL` | Compatible `/v1` API; default base `https://api.deepseek.com/v1` |
+| `openrouter` | `OPENROUTER_API_KEY` → else `SkillAdaptor_API_KEY` | `OPENROUTER_API_BASE_URL` → else `SkillAdaptor_BASE_URL` | Model ids use `vendor/model`; embedding falls back to gateway default when no separate embedding API |
 
 Legacy provider names (`relay-gpt41`, `relay-kimi`, `gpt`, `glm`) map to `auto`.
 

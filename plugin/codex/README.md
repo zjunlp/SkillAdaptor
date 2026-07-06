@@ -58,4 +58,4 @@ The bundled skill `skills/skill-adaptor/SKILL.md` documents how to call `run_plu
 |----------|---------|
 | `SkillAdaptor_HARNESS` | `codex` |
 | `CODEX_HOME` | Default `~/.codex` |
-| `SkillEvolve_API_KEY` | Chat LLM for SkillAdaptor and Codex |
+| `SkillAdaptor_API_KEY` | Chat LLM for SkillAdaptor and Codex |

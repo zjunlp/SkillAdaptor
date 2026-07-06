@@ -12,6 +12,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from core.api_env import chat_key_envs, chat_url_envs, first_env
+
 
 def _truthy(name: str, default: str = '0') -> bool:
     return os.environ.get(name, default).strip().lower() in ('1', 'true', 'yes')
@@ -32,7 +34,7 @@ def is_available() -> bool:
 
 
 def _api_key() -> str:
-    return (os.environ.get('API_KEY') or os.environ.get('SkillEvolve_API_KEY') or '').strip()
+    return (os.environ.get('API_KEY') or first_env(*chat_key_envs()) or '').strip()
 
 
 def _needs_api() -> bool:
@@ -43,7 +45,7 @@ def _client():
     from skillnet_ai import SkillNetClient
     return SkillNetClient(
         api_key=_api_key(),
-        base_url=os.environ.get('BASE_URL') or os.environ.get('SkillEvolve_BASE_URL'),
+        base_url=first_env('BASE_URL', *chat_url_envs()),
         github_token=os.environ.get('GITHUB_TOKEN'),
     )
 
@@ -83,7 +85,7 @@ def post_adopt_hooks(workspace: Path, adopted_ids: list[str]) -> dict[str, Any]:
     if not adopted_ids:
         return summary
     if _needs_api() and not _api_key():
-        summary['error'] = 'API_KEY or SkillEvolve_API_KEY required for SKILLNET_POST_EVAL / SKILLNET_POST_ANALYZE'
+        summary['error'] = 'API_KEY or SkillAdaptor_API_KEY required for SKILLNET_POST_EVAL / SKILLNET_POST_ANALYZE'
         return summary
     if not is_available():
         summary['error'] = 'skillnet-ai not installed (pip install skillnet-ai)'

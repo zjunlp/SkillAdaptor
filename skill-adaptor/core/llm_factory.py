@@ -3,7 +3,7 @@
 from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
-from .config import SkillEvolveConfig
+from .config import SkillAdaptorConfig
 from .llm_retry import call_with_retries
 
 class _RetryingChatCompletions:
@@ -29,11 +29,11 @@ class RetryingOpenAIClient:
     def __getattr__(self, name: str) -> Any:
         return getattr(self._client, name)
 
-def build_openai_client(config: SkillEvolveConfig) -> Any:
+def build_openai_client(config: SkillAdaptorConfig) -> Any:
     import openai
     if not config.api_key:
-        raise ValueError('SkillEvolve API key is required for evolution pipeline')
+        raise ValueError('SkillAdaptor API key is required for evolution pipeline')
     if not config.base_url:
-        raise ValueError('SkillEvolve BASE_URL is required for evolution pipeline')
+        raise ValueError('SkillAdaptor BASE_URL is required for evolution pipeline')
     raw = openai.OpenAI(api_key=config.api_key, base_url=config.base_url)
     return RetryingOpenAIClient(raw, max_retries=config.max_retries)

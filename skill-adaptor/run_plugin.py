@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
-from run_skillevolve import load_task_manifest, setup_config
+from run_skill_adaptor import load_task_manifest, setup_config
 from core.provider_config import describe_profile
 from runtime.plugin_host import PluginHost
 from runtime.project_config import load_project_config
@@ -229,7 +229,7 @@ def _run_evolution_locked(args: argparse.Namespace, workspace: Path, project, ho
     except Exception as exc:
         print(f'Configuration error: {exc}')
         return 1
-    os.environ.setdefault('SkillEvolve_OUTPUT_DIR', args.output)
+    os.environ.setdefault('SkillAdaptor_output_DIR', args.output)
     config.output_dir = Path(args.output)
     config.artifact_dir = workspace / '.skill-adaptor' / 'artifacts'
     config.results_dir = workspace / '.skill-adaptor' / 'results'

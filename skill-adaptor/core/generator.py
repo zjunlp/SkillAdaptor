@@ -14,7 +14,7 @@ from .adapter_hints import get_active_hints
 from .skill_body_utils import enrich_shell_skill_data, enrich_artifact_skill_data, smart_compact_skill_body, build_contrastive_failure_block, format_trajectory_steps_for_analysis, extract_wrong_actions_from_rejections
 from .llm_params import chat_temperature
 if TYPE_CHECKING:
-    from .config import SkillEvolveConfig
+    from .config import SkillAdaptorConfig
 
 class Generator:
     MAX_SKILL_BODY_CHARS = 1600

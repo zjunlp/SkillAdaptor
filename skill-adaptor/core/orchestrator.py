@@ -1,4 +1,4 @@
-"""SkillEvolve Orchestrator - Main Controller"""
+"""SkillAdaptor Orchestrator - Main Controller"""
 
 from __future__ import annotations
 import hashlib
@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from .types import Skill, Trajectory, LocalizedFault, SkillAttribution, ValidationResult, SkillBank, FaultType
-from .config import SkillEvolveConfig
+from .config import SkillAdaptorConfig
 from .localizer import Localizer
 from .linker import Linker
 from .reviser import Reviser
@@ -21,7 +21,7 @@ from .task_context import load_task_markdown
 from .skill_body_utils import refine_localized_fault, coerce_cold_start_fault, coerce_degraded_bank_fault
 
 @dataclass
-class SkillEvolveIteration:
+class SkillAdaptorIteration:
     iteration: int
     failures: int
     revised: List[str]
@@ -30,9 +30,9 @@ class SkillEvolveIteration:
     skill_count: int
     timestamp: str
 
-class SkillEvolveOrchestrator:
+class SkillAdaptorOrchestrator:
 
-    def __init__(self, config: SkillEvolveConfig, llm_client: Optional[Any]=None, benchmark_constraints: Optional[str]=None, task_category_fn: Optional[Callable[[str], str]]=None):
+    def __init__(self, config: SkillAdaptorConfig, llm_client: Optional[Any]=None, benchmark_constraints: Optional[str]=None, task_category_fn: Optional[Callable[[str], str]]=None):
         self.config = config
         self.llm_client = llm_client
         self._task_category_fn = task_category_fn
@@ -47,7 +47,7 @@ class SkillEvolveOrchestrator:
         self.skill_bank = SkillBankManager()
         self.iteration = 0
         self.consecutive_rejections = 0
-        self.iteration_history: List[SkillEvolveIteration] = []
+        self.iteration_history: List[SkillAdaptorIteration] = []
         self.low_score_success_threshold = 0.6
         self._rejection_history: Dict[str, Dict[str, Any]] = {}
         self._rejection_history_path = config.output_dir / 'rejection_history.json'
@@ -69,7 +69,7 @@ class SkillEvolveOrchestrator:
                 self.skill_bank.add_skill(skill)
         self._initial_baseline_metrics: Optional[Dict[str, Any]] = None
         print('=' * 60)
-        print('SkillEvolve: Training-Free Skill Evolution')
+        print('SkillAdaptor: Training-Free Skill Adaptation')
         print('=' * 60)
         print(f'Initial skills: {len(self.skill_bank)}')
         for s in self.skill_bank.list_skills():
@@ -496,7 +496,7 @@ class SkillEvolveOrchestrator:
         return []
 
     def _record_iteration(self, failures: List[Trajectory], revised: List[Skill], generated: List[Skill], accepted: List[Skill]) -> None:
-        record = SkillEvolveIteration(iteration=self.iteration, failures=len(failures), revised=[s.id for s in revised], generated=[s.id for s in generated], accepted=[s.id for s in accepted], skill_count=len(self.skill_bank), timestamp=datetime.now().isoformat())
+        record = SkillAdaptorIteration(iteration=self.iteration, failures=len(failures), revised=[s.id for s in revised], generated=[s.id for s in generated], accepted=[s.id for s in accepted], skill_count=len(self.skill_bank), timestamp=datetime.now().isoformat())
         self.iteration_history.append(record)
 
     def _generate_report(self) -> Dict[str, Any]:
@@ -508,11 +508,11 @@ class SkillEvolveOrchestrator:
                     seen_adopted.add(sid)
                     newly_adopted.append(sid)
         report = {'iterations': self.iteration, 'final_skill_count': len(self.skill_bank), 'newly_adopted_skill_ids': newly_adopted, 'consecutive_rejections': self.consecutive_rejections, 'history': [{'iteration': r.iteration, 'failures': r.failures, 'revised': r.revised, 'generated': r.generated, 'accepted': r.accepted, 'skill_count': r.skill_count, 'timestamp': r.timestamp} for r in self.iteration_history], 'skill_bank': self.skill_bank.to_dict()}
-        report_path = self.config.output_dir / 'SkillEvolve_report.json'
+        report_path = self.config.output_dir / 'SkillAdaptor_report.json'
         with open(report_path, 'w', encoding='utf-8') as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
         print(f"\n{'=' * 60}")
-        print('SkillEvolve Complete')
+        print('SkillAdaptor Complete')
         print(f"{'=' * 60}")
         print(f'Total iterations: {self.iteration}')
         print(f'Final skill count: {len(self.skill_bank)}')

@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from core.api_env import chat_key_envs, chat_url_envs, first_env, inject_benchmark_child_env
+from core.api_env import chat_key_envs, chat_url_envs, chat_model_envs, first_env, inject_benchmark_child_env
 from core.agent_trace_resolve import (
     build_steps_from_raw,
     discover_claw_eval_trace,
@@ -43,7 +43,7 @@ class ClawEvalExecutor:
         self.artifact_dir = Path(artifact_dir) if artifact_dir else None
         self.api_key = api_key or first_env(*chat_key_envs())
         self.base_url = base_url or first_env(*chat_url_envs())
-        self.model = model or os.environ.get('SkillEvolve_MODEL', 'gpt-4.1')
+        self.model = model or first_env(*chat_model_envs()) or 'gpt-4.1'
         self._task_skills: Dict[str, str] = {}
         self._task_skill_ids: Dict[str, List[str]] = {}
 

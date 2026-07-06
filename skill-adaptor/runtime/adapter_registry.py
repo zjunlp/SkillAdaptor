@@ -33,7 +33,7 @@ def resolve_adapter(env: Optional[str]=None, *, prefer_openclaw: bool=True) -> A
     raise ValueError('Cannot resolve adapter: set --env or PINCHBENCH_PATH / CLAW_EVAL_PATH / WEBSHOP_PATH')
 
 def get_run_callable(spec: AdapterSpec) -> Callable:
-    from run_skillevolve import run_claw_eval, run_pinchbench, run_webshop, run_workspace
+    from run_skill_adaptor import run_claw_eval, run_pinchbench, run_webshop, run_workspace
     mapping = {'run_pinchbench': run_pinchbench, 'run_claw_eval': run_claw_eval, 'run_webshop': run_webshop, 'run_workspace': run_workspace}
     fn = mapping.get(spec.run_fn_name)
     if fn is None:

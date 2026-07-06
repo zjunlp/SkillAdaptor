@@ -31,7 +31,7 @@ jobs:
       - name: Import core modules
         working-directory: skill-adaptor
         run: |
-          python -c "from core.orchestrator import SkillEvolveOrchestrator"
+          python -c "from core.orchestrator import SkillAdaptorOrchestrator"
           python -c "from core.api_env import CHAT_API_KEY_VAR, CHAT_BASE_URL_VAR"
           python -c "from core.provider_config import resolve_provider, validate_profile"
           python -c "from adapters.claw_eval_adapter.executor import ClawEvalExecutor"
@@ -59,20 +59,20 @@ jobs:
         run: |
           python -c "
           import os
-          os.environ['SkillEvolve_API_KEY']='test'
-          os.environ['SkillEvolve_BASE_URL']='http://127.0.0.1:1/v1'
-          os.environ['SkillEvolve_MODEL']='gpt-4.1'
+          os.environ['SkillAdaptor_API_KEY']='test'
+          os.environ['SkillAdaptor_BASE_URL']='http://127.0.0.1:1/v1'
+          os.environ['SkillAdaptor_MODEL']='gpt-4.1'
           from core.provider_config import resolve_provider, validate_profile
           p = resolve_provider('relay-gpt41')
           assert not validate_profile(p) or 'missing' not in str(validate_profile(p))
           print('provider_config_ok')
           "
 
-  # Live smoke requires secrets — enable when SkillEvolve_API_KEY is configured in repo secrets
+  # Live smoke requires secrets — enable when SkillAdaptor_API_KEY is configured in repo secrets
   live-smoke:
     if: false  # set to: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - name: Live PinchBench smoke (manual only)
-        run: echo "Configure SkillEvolve_API_KEY + PINCHBENCH_PATH in secrets to enable"
+        run: echo "Configure SkillAdaptor_API_KEY + PINCHBENCH_PATH in secrets to enable"

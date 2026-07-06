@@ -15,7 +15,7 @@ from .adapter_hints import get_active_hints
 from .llm_json import parse_llm_json_object
 from .llm_params import chat_temperature
 if TYPE_CHECKING:
-    from .config import SkillEvolveConfig
+    from .config import SkillAdaptorConfig
 RevisionHandler = Callable[[Skill, Dict[str, Any], LocalizedFault], Skill]
 
 class Reviser:

@@ -1,4 +1,4 @@
-"""Configuration management for the SkillEvolve framework."""
+"""Configuration management for the SkillAdaptor framework."""
 
 from __future__ import annotations
 import json
@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional
 from core.embedding_config import PRIMARY_EMBEDDING_MODEL
 
 @dataclass
-class SkillEvolveConfig:
+class SkillAdaptorConfig:
     api_key: str = ''
     base_url: str = ''
     model: str = ''
@@ -36,9 +36,9 @@ class SkillEvolveConfig:
     use_llm_revision: bool = True
     use_llm_generation: bool = True
     skill_template: str = 'enhanced'
-    output_dir: Path = field(default_factory=lambda: Path('./SkillEvolve_output'))
-    artifact_dir: Path = field(default_factory=lambda: Path('./SkillEvolve_artifacts'))
-    results_dir: Path = field(default_factory=lambda: Path('./SkillEvolve_results'))
+    output_dir: Path = field(default_factory=lambda: Path('./SkillAdaptor_output'))
+    artifact_dir: Path = field(default_factory=lambda: Path('./SkillAdaptor_artifacts'))
+    results_dir: Path = field(default_factory=lambda: Path('./SkillAdaptor_results'))
     skills_workspace_dir: Optional[Path] = None
     program_workspace: Optional[Path] = None
     agent_harness: str = 'openclaw'
@@ -58,10 +58,13 @@ class SkillEvolveConfig:
             self.program_workspace = Path(self.program_workspace)
 
     @classmethod
-    def from_env(cls, prefix: str='SkillEvolve_') -> SkillEvolveConfig:
+    def from_env(cls, prefix: str='SkillAdaptor_') -> SkillAdaptorConfig:
 
-        def get_env(key: str, default: Any=None) -> Any:
-            return os.environ.get(f'{prefix}{key}', default)
+        def get_env(key: str, default: Any = None) -> Any:
+            val = os.environ.get(f'{prefix}{key}')
+            if val is not None and str(val).strip() != '':
+                return val
+            return os.environ.get(f'SkillEvolve_{key}', default)
 
         def get_env_int(key: str, default: int) -> int:
             val = get_env(key)
@@ -76,10 +79,10 @@ class SkillEvolveConfig:
             if val is None:
                 return default
             return val.lower() in ('true', '1', 'yes', 'on')
-        return cls(api_key=get_env('API_KEY', ''), base_url=get_env('BASE_URL', ''), model=get_env('MODEL', ''), max_tokens=get_env_int('MAX_TOKENS', 512), temperature=get_env_float('TEMPERATURE', 0.3), max_retries=get_env_int('MAX_RETRIES', 5), retry_delay=get_env_float('RETRY_DELAY', 1.0), max_iterations=get_env_int('MAX_ITERATIONS', 10), k_reject_threshold=get_env_int('K_REJECT_THRESHOLD', 5), localization_confidence_threshold=get_env_float('LOCALIZATION_CONFIDENCE_THRESHOLD', 0.6), attribution_weight_threshold=get_env_float('ATTRIBUTION_WEIGHT_THRESHOLD', 0.55), duplication_similarity_threshold=get_env_float('DUPLICATION_SIMILARITY_THRESHOLD', 0.95), skill_match_threshold=get_env_float('SKILL_MATCH_THRESHOLD', 0.5), cross_task_match_threshold=get_env_float('CROSS_TASK_MATCH_THRESHOLD', 0.55), success_delta_threshold=get_env_float('SUCCESS_DELTA_THRESHOLD', 0.005), avg_score_delta_threshold=get_env_float('AVG_SCORE_DELTA_THRESHOLD', 0.005), regression_threshold=get_env_float('REGRESSION_THRESHOLD', -0.05), min_sample_size=get_env_int('MIN_SAMPLE_SIZE', 5), use_llm_localization=get_env_bool('USE_LLM_LOCALIZATION', True), use_llm_attribution=get_env_bool('USE_LLM_ATTRIBUTION', True), use_llm_revision=get_env_bool('USE_LLM_REVISION', True), use_llm_generation=get_env_bool('USE_LLM_GENERATION', True), skill_template=get_env('SKILL_TEMPLATE', 'enhanced'), output_dir=Path(get_env('OUTPUT_DIR', './SkillEvolve_output')), artifact_dir=Path(get_env('ARTIFACT_DIR', './SkillEvolve_artifacts')), results_dir=Path(get_env('RESULTS_DIR', './SkillEvolve_results')), skills_workspace_dir=Path(p) if (p := get_env('SKILLS_WORKSPACE_DIR')) else None, program_workspace=Path(p) if (p := get_env('PROGRAM_WORKSPACE')) else None, agent_harness=get_env('HARNESS', get_env('AGENT_HARNESS', 'openclaw')), program_git_branches=get_env_bool('PROGRAM_GIT', False), direct_skill_write=get_env_bool('DIRECT_SKILL_WRITE', True), embedding_api_key=get_env('EMBEDDING_API_KEY', ''), embedding_base_url=get_env('EMBEDDING_BASE_URL', ''), embedding_model=get_env('EMBEDDING_MODEL', PRIMARY_EMBEDDING_MODEL))
+        return cls(api_key=get_env('API_KEY', ''), base_url=get_env('BASE_URL', ''), model=get_env('MODEL', ''), max_tokens=get_env_int('MAX_TOKENS', 512), temperature=get_env_float('TEMPERATURE', 0.3), max_retries=get_env_int('MAX_RETRIES', 5), retry_delay=get_env_float('RETRY_DELAY', 1.0), max_iterations=get_env_int('MAX_ITERATIONS', 10), k_reject_threshold=get_env_int('K_REJECT_THRESHOLD', 5), localization_confidence_threshold=get_env_float('LOCALIZATION_CONFIDENCE_THRESHOLD', 0.6), attribution_weight_threshold=get_env_float('ATTRIBUTION_WEIGHT_THRESHOLD', 0.55), duplication_similarity_threshold=get_env_float('DUPLICATION_SIMILARITY_THRESHOLD', 0.95), skill_match_threshold=get_env_float('SKILL_MATCH_THRESHOLD', 0.5), cross_task_match_threshold=get_env_float('CROSS_TASK_MATCH_THRESHOLD', 0.55), success_delta_threshold=get_env_float('SUCCESS_DELTA_THRESHOLD', 0.005), avg_score_delta_threshold=get_env_float('AVG_SCORE_DELTA_THRESHOLD', 0.005), regression_threshold=get_env_float('REGRESSION_THRESHOLD', -0.05), min_sample_size=get_env_int('MIN_SAMPLE_SIZE', 5), use_llm_localization=get_env_bool('USE_LLM_LOCALIZATION', True), use_llm_attribution=get_env_bool('USE_LLM_ATTRIBUTION', True), use_llm_revision=get_env_bool('USE_LLM_REVISION', True), use_llm_generation=get_env_bool('USE_LLM_GENERATION', True), skill_template=get_env('SKILL_TEMPLATE', 'enhanced'), output_dir=Path(get_env('OUTPUT_DIR', './SkillAdaptor_output')), artifact_dir=Path(get_env('ARTIFACT_DIR', './SkillAdaptor_artifacts')), results_dir=Path(get_env('RESULTS_DIR', './SkillAdaptor_results')), skills_workspace_dir=Path(p) if (p := get_env('SKILLS_WORKSPACE_DIR')) else None, program_workspace=Path(p) if (p := get_env('PROGRAM_WORKSPACE')) else None, agent_harness=get_env('HARNESS', get_env('AGENT_HARNESS', 'openclaw')), program_git_branches=get_env_bool('PROGRAM_GIT', False), direct_skill_write=get_env_bool('DIRECT_SKILL_WRITE', True), embedding_api_key=get_env('EMBEDDING_API_KEY', ''), embedding_base_url=get_env('EMBEDDING_BASE_URL', ''), embedding_model=get_env('EMBEDDING_MODEL', PRIMARY_EMBEDDING_MODEL))
 
     @classmethod
-    def from_json(cls, path: str | Path) -> SkillEvolveConfig:
+    def from_json(cls, path: str | Path) -> SkillAdaptorConfig:
         with open(path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         for key in ['output_dir', 'artifact_dir', 'results_dir', 'skills_workspace_dir', 'program_workspace']:
@@ -118,17 +121,17 @@ class SkillEvolveConfig:
         self.artifact_dir.mkdir(parents=True, exist_ok=True)
         self.results_dir.mkdir(parents=True, exist_ok=True)
 
-def load_config(env_prefix: str='SkillEvolve_', config_path: Optional[str | Path]=None, use_env: bool=True) -> SkillEvolveConfig:
-    config = SkillEvolveConfig()
+def load_config(env_prefix: str = 'SkillAdaptor_', config_path: Optional[str | Path] = None, use_env: bool = True) -> SkillAdaptorConfig:
+    config = SkillAdaptorConfig()
     if config_path and Path(config_path).exists():
-        file_config = SkillEvolveConfig.from_json(config_path)
-        for field_name in SkillEvolveConfig.__dataclass_fields__:
+        file_config = SkillAdaptorConfig.from_json(config_path)
+        for field_name in SkillAdaptorConfig.__dataclass_fields__:
             setattr(config, field_name, getattr(file_config, field_name))
     if use_env:
-        env_config = SkillEvolveConfig.from_env(env_prefix)
-        for field_name in SkillEvolveConfig.__dataclass_fields__:
+        env_config = SkillAdaptorConfig.from_env(env_prefix)
+        for field_name in SkillAdaptorConfig.__dataclass_fields__:
             env_val = getattr(env_config, field_name)
-            if env_val != getattr(SkillEvolveConfig(), field_name):
+            if env_val != getattr(SkillAdaptorConfig(), field_name):
                 setattr(config, field_name, env_val)
     if isinstance(config.output_dir, str):
         config.output_dir = Path(config.output_dir)
