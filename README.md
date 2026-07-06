@@ -4,16 +4,16 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Paper](https://img.shields.io/badge/📄_Paper-ARXIV_2026-lightgrey)](https://arxiv.org/abs/2606.01311)
+[![arXiv](https://img.shields.io/badge/arXiv-2606.01311-b5212f.svg?logo=arxiv)](https://arxiv.org/abs/2606.01311)
 
 <img src="paper/overview.png" alt="SkillAdaptor overview" width="900"/>
 
 [Installation](#installation) ·
 [Quick Start](#quick-start) ·
+[Paper](#paper) ·
 [OpenClaw](#openclaw-typescript-plugin) ·
 [Citation](#citation)
 
-**⭐ If you like our project, please give us a star on GitHub for the latest updates!**
 
 </div>
 
@@ -21,24 +21,12 @@
 
 **SkillAdaptor** is a **Python CLI + workspace plugin** that evolves agent **`SKILL.md`** files from failure trajectories. It plugs into **[OpenClaw](https://github.com/openclaw/openclaw)**, **Claude Code**, **Codex CLI**, and **[Hermes Agent](https://github.com/NousResearch/hermes-agent)** via a harness layer (`--harness openclaw|claude-code|codex|hermes`) — same evolution engine, different agent runtime. **Not tied to a fixed task list:** you bring any tasks (markdown briefs, manifest, or benchmark auto-discover); the step-level Localizer→Validator pipeline stays the same.
 
-- **Step-level attribution** — Localizer finds **t★**; Linker attributes skills at that step; Reviser/Generator proposes a targeted fix
+- **Step-level attribution** — On a failed agent run, SkillAdaptor reads the step-by-step trace: the **Localizer** marks the earliest bad step **t★** (e.g. wrong tool call or deliverable); the **Linker** scores which injected `SKILL.md` is responsible at that step; **Reviser** patches that skill or **Generator** writes a new one; **Validator** re-runs held-out tasks and adopts only if metrics beat the baseline.
 - **General workspace plugin** — `run_plugin.py init` + `run_plugin.py`; outputs `skills/<id>/SKILL.md` (harness sync: `.claude/skills/`, `~/.codex/skills/`, `~/.hermes/skills/skill-adaptor/`, or OpenClaw workspace)
 - **Flexible task sources** — `input_task/*.md` (default) · `--manifest` · `auto_discover` · OpenClaw bridge `--input-trajectories`
-- **Retrieval-gated inject** — category + embedding; no global skill pollution on unrelated tasks
+- **Retrieval-gated inject** — no global skill pollution on unrelated tasks
 
 > PinchBench / WebShop / Claw-Eval are **optional executors** (set env paths). Core plugin works on any task briefs you provide.
-
----
-
-## Key features
-
-| Feature | Description |
-|---------|-------------|
-| **Step-level adaptation** | Localizer → **t★** fault step · Linker → suspect skills at that step · Reviser/Generator → step-targeted skill edits |
-| **Training-free evolution** | Localizer → Linker → Reviser/Generator → Validator (no weight updates) |
-| **Agent harness plugin** | Python CLI → OpenClaw gateway, Claude Code `.claude/skills/`, Codex `~/.codex/skills/`, or Hermes `~/.hermes/skills/skill-adaptor/` |
-| **General task input** | `input_task/` · `--manifest` · `--mode auto_discover` · bridge trajectories |
-| **Retrieval-gated inject** | Category + embedding; no global skill pollution on unrelated tasks |
 
 ---
 
@@ -167,30 +155,7 @@ Legacy names (`relay-gpt41`, `relay-kimi`, `gpt`, `glm`) map to `auto`.
 
 Skill–task matching always uses `SkillEvolve_EMBEDDING_*` (independent from chat URL/key).
 
----
 
-## Task brief format
-
-```markdown
----
-id: my_task_fix_deploy
-category: devops
----
-
-# Fix broken deploy script
-
-## Prompt
-...
-
-## Grading Criteria
-...
-```
-
-Optional held-out briefs: `my-workspace/test_task/`.
-
-**Validation split:** auto-derived from `input_task/` (first ~20% → Q′, rest → train). No `validation_task/` folder required.
-
-> **Executor note:** OpenClaw live runs use the PinchBench OpenClaw bridge (`PINCHBENCH_PATH`). WebShop / Claw-Eval are optional when you set `WEBSHOP_PATH` / `CLAW_EVAL_PATH` and `--env webshop|claw-eval`.
 
 ---
 
@@ -276,15 +241,26 @@ Full template: [`.env.example`](.env.example).
 
 ---
 
+## Paper
+
+**[SkillAdaptor: Self-Adapting Skills for LLM Agents from Trajectories](https://arxiv.org/abs/2606.01311)** ([arXiv:2606.01311](https://arxiv.org/abs/2606.01311))
+
+Method overview figure: [`paper/overview.png`](paper/overview.png) (also shown above).
+
+---
+
 ## Citation
 
 If you use SkillAdaptor in research, please cite:
 
 ```bibtex
-@article{skilladaptor2026,
+@misc{yu2026skilladaptor,
   title={SkillAdaptor: Self-Adapting Skills for LLM Agents from Trajectories},
-  author={Zhuoyun Yu, Xin Xie, Wuguannan Yao, Chenxi Wang, Lei Liang, Xiang Qi, Shumin Deng},
+  author={Zhuoyun Yu and Xin Xie and Wuguannan Yao and Chenxi Wang and Lei Liang and Xiang Qi and Shumin Deng},
   year={2026},
+  eprint={2606.01311},
+  archivePrefix={arXiv},
+  primaryClass={cs.AI},
   url={https://arxiv.org/abs/2606.01311}
 }
 ```
