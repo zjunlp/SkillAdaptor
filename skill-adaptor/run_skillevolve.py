@@ -210,7 +210,7 @@ def run_claw_eval(args, config):
     results_dir = os.environ.get('CLAW_EVAL_RESULTS_DIR', 'results')
     artifact_dir = config.artifact_dir
     llm_client = build_openai_client(config)
-    executor = ClawEvalExecutor(claw_eval_path=claw_eval_path, python_cmd=os.environ.get('CLAW_EVAL_PYTHON') or os.environ.get('PINCHBENCH_PYTHON'), tasks_dir=tasks_dir, results_dir=results_dir, api_key=config.api_key, base_url=config.base_url, model=config.model)
+    executor = ClawEvalExecutor(claw_eval_path=claw_eval_path, python_cmd=os.environ.get('CLAW_EVAL_PYTHON') or os.environ.get('PINCHBENCH_PYTHON'), tasks_dir=tasks_dir, results_dir=results_dir, artifact_dir=artifact_dir, api_key=config.api_key, base_url=config.base_url, model=config.model)
     all_tasks = executor.list_tasks()
     if not all_tasks:
         raise ValueError('No Claw-Eval tasks found. Check CLAW_EVAL_PATH and CLAW_EVAL_TASKS_DIR.')
