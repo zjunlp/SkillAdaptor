@@ -10,6 +10,7 @@
 
 [Installation](#installation) ·
 [Quick Start](#quick-start) ·
+[Step-level trajectories](#step-level-trajectory-extraction) ·
 [Paper](#paper) ·
 [OpenClaw](#openclaw-typescript-plugin) ·
 [Citation](#citation)
@@ -67,7 +68,7 @@ openclaw gateway start
 openclaw gateway status   # Connectivity probe: ok
 ```
 
-Set `PINCHBENCH_PATH` in `secrets/.env` to your PinchBench checkout (OpenClaw task runner).  
+Set `PINCHBENCH_PATH` in `secrets/.env` only when using the PinchBench benchmark executor.
 **Claude Code:** `--harness claude-code` → syncs to `.claude/skills/`.  
 **Codex CLI:** `--harness codex` → syncs to `~/.codex/skills/` and `.agents/skills/` ([install guide](plugin/codex/README.md)).  
 **Hermes Agent:** `--harness hermes` → syncs to `~/.hermes/skills/skill-adaptor/` ([install guide](plugin/hermes/README.md)).
@@ -103,7 +104,49 @@ python run_plugin.py --workspace ../my-workspace --max-iterations 2
 | `test_task/` | Optional extra held-out task briefs |
 | `skills/<id>/SKILL.md` | Adopted skills after Validator passes |
 
-Use **`--sync-tasks`** after editing task files. Live OpenClaw runs need `PINCHBENCH_PATH` in `secrets/.env`.
+Use **`--sync-tasks`** after editing task files. For **workspace-only** runs (`--env workspace`, default when no benchmark path is set), tasks live in `input_task/` and do **not** need `PINCHBENCH_PATH`. Set `PINCHBENCH_PATH` only for PinchBench / Claw-Eval benchmark executors.
+
+---
+
+## Step-level trajectory extraction
+
+SkillAdaptor **extracts steps automatically** from agent run artifacts — you do not hand-label trajectories for the evolution loop.
+
+| Source | Typical executor | What gets parsed |
+|--------|------------------|------------------|
+| OpenClaw session JSONL | `workspace`, PinchBench | `toolCall` / `tool_use` → one step per tool call |
+| Claw-Eval trace JSONL | `claw-eval` | `tool_use` events in trace files |
+| PinchBench transcript | `pinchbench` | Native transcript + OpenClaw extract (merged) |
+| Pre-seeded files | `--input-trajectories` | Copied into `.skill-adaptor/artifacts/trajectories/` |
+
+Merged steps are written to `{task_id}_annotated.json` with `metadata.step_provenance` (e.g. `native_primary_enriched`, `extracted_primary`) and per-step `action` / `observation`.
+
+### Tool actions required
+
+Step-level Localizer → Linker → Reviser/Generator **only runs on real tool steps**. Each usable step must have a **tool-level `action`**, e.g.:
+
+```text
+shell({"command": "grep ERROR app.log"})
+write({"path": "report.txt", "content": "..."})
+```
+
+The following **do not** count as evolution-grade steps:
+
+- `(assistant response)` — text-only turns with no tool call  
+- Empty / placeholder actions (`(no action)`, `(end)`, …)  
+- Runs with score but **no** parseable tool trace  
+
+If a live run produces no qualifying steps, SkillAdaptor **fails fast** (`TaskExecutionError`) instead of silently inventing a trajectory.
+
+### Exceptions (probes only)
+
+| Mode | Behavior |
+|------|----------|
+| Default | No trace → **error**; evolution stops for that task |
+| `probe_mode=true` in manifest | Sets `ALLOW_SYNTHETIC_TRAJECTORY=1`; may synthesize a **1-step** minimal trajectory when only score/text is available |
+| `--input-trajectories` | Seed real traces before evolution (still must contain tool actions to be useful) |
+
+Check `steps[].metadata.step_provenance` and `steps[].action` in `{task_id}_annotated.json` to confirm a run is real, not synthetic.
 
 ---
 
@@ -234,7 +277,9 @@ See [plugin/hermes/README.md](plugin/hermes/README.md) for `HERMES_HOME`, `skill
 | `SkillAdaptor_HARNESS` | `openclaw` \| `claude-code` \| `codex` \| `hermes` |
 | `CODEX_HOME` | Codex home (default `~/.codex`) |
 | `HERMES_HOME` | Hermes home (default `~/.hermes`) |
-| `PINCHBENCH_PATH` | Required for OpenClaw live execution |
+| `PINCHBENCH_PATH` | PinchBench executor only (`--env pinchbench`) |
+| `CLAW_EVAL_PATH` | Claw-Eval executor only (`--env claw-eval`) |
+| `ALLOW_SYNTHETIC_TRAJECTORY` | `1` to allow 1-step fallback when no tool trace (probes; not for paper eval) |
 | `OPENCLAW_CLI` | Optional explicit `openclaw` path |
 
 Full template: [`.env.example`](.env.example).
