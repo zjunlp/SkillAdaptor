@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
 
+from core.api_env import CHAT_API_KEY_VAR, CHAT_BASE_URL_VAR, chat_key_envs, chat_url_envs, first_env
 from core.openclaw_hygiene import openclaw_agent_id, openclaw_agent_slug
 from core.openclaw_cli import resolve_openclaw_executable
 
@@ -166,12 +167,12 @@ def ensure_bench_agent_auth(
     Ensure bench-{model} has models.json + sqlite auth before PinchBench runs.
     Returns agent_id.
     """
-    key = (api_key or os.environ.get('OPENAI_API_KEY') or os.environ.get('SkillEvolve_API_KEY') or '').strip()
-    url = (base_url or os.environ.get('OPENAI_API_BASE_URL') or os.environ.get('SkillEvolve_BASE_URL') or '').strip()
+    key = (api_key or first_env(*chat_key_envs())).strip()
+    url = (base_url or first_env(*chat_url_envs())).strip()
     if not key or not url:
         raise RuntimeError(
             'OpenClaw bench agent needs API key and base URL. '
-            'Set OPENAI_API_KEY + OPENAI_API_BASE_URL (or run resolve_and_apply first).'
+            f'Set {CHAT_API_KEY_VAR} + {CHAT_BASE_URL_VAR} (or run resolve_and_apply first).'
         )
 
     agent_id = openclaw_agent_id(model)
@@ -195,7 +196,7 @@ def ensure_main_agent_openai_auth(api_key: Optional[str] = None) -> None:
     Silence gateway ProviderAuthError on the default `main` agent when it uses openai/*.
     Uses the same chat API key from secrets — does not change main's configured model.
     """
-    key = (api_key or os.environ.get('OPENAI_API_KEY') or os.environ.get('SkillEvolve_API_KEY') or '').strip()
+    key = (api_key or first_env(*chat_key_envs())).strip()
     if not key:
         return
     paste_api_key('main', 'openai', key)

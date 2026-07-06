@@ -22,6 +22,7 @@ python run_plugin.py --workspace PATH --input-trajectories PATH
 |----------|---------|
 | `SKILL_ADAPTOR_ROOT` | Directory with `run_plugin.py` (for `scripts/run_evolve.py`) |
 | `SkillEvolve_API_KEY` | LLM |
+| `SkillEvolve_BASE_URL` | Chat API base URL |
 | `SkillEvolve_MODEL` | e.g. gpt-4.1 |
 | `SkillAdaptor_HARNESS` | openclaw / claude-code / codex / hermes |
 | `HERMES_HOME` | Hermes home (default `~/.hermes`) |

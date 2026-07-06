@@ -7,6 +7,8 @@ import re
 import urllib.request
 from typing import Optional
 
+from core.api_env import chat_key_envs, chat_url_envs, first_env
+
 def _first_env(*keys: str) -> str:
     for key in keys:
         val = os.environ.get(key, '').strip()
@@ -21,8 +23,8 @@ class SkillEvolveLLMClient:
         if not self.model:
             raise ValueError('Model name must be provided via argument or SkillEvolve_MODEL environment variable')
         self._model_lower = self.model.lower()
-        self.api_key = api_key or _first_env('OPENAI_API_KEY', 'SkillEvolve_API_KEY')
-        self.base_url = base_url or _first_env('OPENAI_API_BASE_URL', 'SkillEvolve_BASE_URL', 'OPENAI_BASE_URL')
+        self.api_key = api_key or first_env(*chat_key_envs())
+        self.base_url = base_url or first_env(*chat_url_envs())
         if not self.api_key:
             raise ValueError('API key must be provided via argument or environment variable')
         if not self.base_url:

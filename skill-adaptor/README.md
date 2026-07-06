@@ -15,10 +15,10 @@ python run_plugin.py --workspace ../my-workspace --model kimi-k2.5 --max-iterati
 
 ## LLM / provider
 
-- **Chat:** `OPENAI_API_KEY` + `OPENAI_API_BASE_URL` (default `SkillAdaptor_PROVIDER=auto`).
+- **Chat:** `SkillEvolve_API_KEY` + `SkillEvolve_BASE_URL` (default `SkillAdaptor_PROVIDER=auto`).
 - **Embedding:** `SkillEvolve_EMBEDDING_API_KEY` + `SkillEvolve_EMBEDDING_BASE_URL` + `SkillEvolve_EMBEDDING_MODEL`.
 - Switch chat models with **`--model`** only — no env change per model.
-- DeepSeek can use the same `OPENAI_API_*` pair (`PROVIDER=auto`) or `DEEPSEEK_API_*` when `PROVIDER=deepseek`.
+- DeepSeek can use the same `SkillEvolve_API_*` pair (`PROVIDER=auto`) or `DEEPSEEK_API_*` when `PROVIDER=deepseek`.
 
 Details: [Configuration](../README.md#configuration) in the root README.
 

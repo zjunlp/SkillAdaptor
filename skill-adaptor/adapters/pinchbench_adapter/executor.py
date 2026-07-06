@@ -11,7 +11,7 @@ import platform
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from core.types import Trajectory, Step, Skill
-from core.openclaw_hygiene import cleanup_agent_sessions, openclaw_agent_id, require_gateway_running
+from core.api_env import inject_benchmark_child_env, chat_key_envs, chat_url_envs, first_env
 from core.openclaw_agent_setup import prepare_openclaw_for_model
 from adapters.errors import TaskExecutionError, PlaceholderDeliverableError
 from .trajectory_extractor import extract_trajectory_for_task, save_trajectory
@@ -38,18 +38,8 @@ class PinchBenchExecutor:
         self.tasks_dir = self.pinchbench_path / tasks_dir
         self.results_dir = self.pinchbench_path / results_dir
         self.artifact_dir = Path(artifact_dir) if artifact_dir else None
-        self.api_key = (
-            api_key
-            or os.environ.get('OPENAI_API_KEY')
-            or os.environ.get('SkillEvolve_API_KEY')
-            or os.environ.get('ANTHROPIC_API_KEY', '')
-        )
-        self.base_url = (
-            base_url
-            or os.environ.get('OPENAI_API_BASE_URL')
-            or os.environ.get('SkillEvolve_BASE_URL')
-            or os.environ.get('OPENAI_BASE_URL', '')
-        )
+        self.api_key = api_key or first_env(*chat_key_envs()) or os.environ.get('ANTHROPIC_API_KEY', '')
+        self.base_url = base_url or first_env(*chat_url_envs())
         self.model = model
         self._llm_client = llm_client
         self.harness = harness or get_harness()
@@ -138,16 +128,8 @@ class PinchBenchExecutor:
     def _setup_env(self) -> Dict[str, str]:
         env = os.environ.copy()
         env['PYTHONPATH'] = str(self.pinchbench_path)
-        if self.api_key:
-            env['OPENAI_API_KEY'] = self.api_key
-            env['ANTHROPIC_API_KEY'] = self.api_key
-        if self.base_url:
-            env['OPENAI_BASE_URL'] = self.base_url
-            env['BASE_URL'] = self.base_url
         model = self.model or os.environ.get('SkillEvolve_MODEL') or os.environ.get('MODEL')
-        if model:
-            env['MODEL'] = model
-            env['SkillEvolve_MODEL'] = model
+        inject_benchmark_child_env(env, api_key=self.api_key, base_url=self.base_url, model=model)
         env['PINCHBENCH_TIMEOUT'] = '1200'
         return env
 

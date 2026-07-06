@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from adapters.errors import TaskExecutionError
 from core.agent_trace_resolve import build_steps_from_raw, save_annotated_trajectory
+from core.api_env import chat_key_envs, chat_url_envs, first_env
 from core.openclaw_hygiene import openclaw_agent_id
 from core.step_trace_gate import require_actionable_trace
 from core.synthetic_trajectory import maybe_synthesize_minimal
@@ -37,8 +38,8 @@ class WorkspaceExecutor:
         self.harness_name = harness_name or os.environ.get('SkillAdaptor_HARNESS', 'openclaw')
         self.harness = harness or get_harness(self.harness_name, project_root=self.workspace)
         self.runner = runner or get_harness_runner(self.harness_name, api_key=api_key, base_url=base_url)
-        self.api_key = api_key or os.environ.get('OPENAI_API_KEY', '') or os.environ.get('SkillEvolve_API_KEY', '')
-        self.base_url = base_url or os.environ.get('OPENAI_API_BASE_URL', '') or os.environ.get('SkillEvolve_BASE_URL', '')
+        self.api_key = api_key or first_env(*chat_key_envs())
+        self.base_url = base_url or first_env(*chat_url_envs())
         self.model = model or os.environ.get('SkillEvolve_MODEL', 'gpt-4.1')
         self._task_skills: Dict[str, str] = {}
         self._task_skill_ids: Dict[str, List[str]] = {}

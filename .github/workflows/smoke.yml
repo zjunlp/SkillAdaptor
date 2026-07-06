@@ -32,6 +32,7 @@ jobs:
         working-directory: skill-adaptor
         run: |
           python -c "from core.orchestrator import SkillEvolveOrchestrator"
+          python -c "from core.api_env import CHAT_API_KEY_VAR, CHAT_BASE_URL_VAR"
           python -c "from core.provider_config import resolve_provider, validate_profile"
           python -c "from adapters.claw_eval_adapter.executor import ClawEvalExecutor"
           python -c "from runtime.skill_export import export_skills_to_workspace, format_skill_markdown"
@@ -58,8 +59,8 @@ jobs:
         run: |
           python -c "
           import os
-          os.environ['OPENAI_API_KEY']='test'
-          os.environ['OPENAI_API_BASE_URL']='http://127.0.0.1:1/v1'
+          os.environ['SkillEvolve_API_KEY']='test'
+          os.environ['SkillEvolve_BASE_URL']='http://127.0.0.1:1/v1'
           os.environ['SkillEvolve_MODEL']='gpt-4.1'
           from core.provider_config import resolve_provider, validate_profile
           p = resolve_provider('relay-gpt41')
@@ -67,11 +68,11 @@ jobs:
           print('provider_config_ok')
           "
 
-  # Live smoke requires secrets — enable when OPENAI_API_KEY is configured in repo secrets
+  # Live smoke requires secrets — enable when SkillEvolve_API_KEY is configured in repo secrets
   live-smoke:
     if: false  # set to: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - name: Live PinchBench smoke (manual only)
-        run: echo "Configure OPENAI_API_KEY + PINCHBENCH_PATH in secrets to enable"
+        run: echo "Configure SkillEvolve_API_KEY + PINCHBENCH_PATH in secrets to enable"

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from adapters.errors import TaskExecutionError
+from core.api_env import chat_url_envs, first_env
 from core.openclaw_agent_setup import prepare_openclaw_for_model, slugify_provider_from_base_url
 from core.openclaw_cli import resolve_openclaw_executable
 from core.openclaw_hygiene import cleanup_agent_sessions, openclaw_agent_id, require_gateway_running
@@ -82,7 +83,7 @@ class OpenClawHarnessRunner(HarnessRunner):
             return
         agents = config.setdefault('agents', {}).setdefault('list', [])
         normalized_id = agent_id.replace(':', '-').lower()
-        url = (self.base_url or os.environ.get('OPENAI_API_BASE_URL') or '').strip()
+        url = (self.base_url or first_env(*chat_url_envs())).strip()
         bare = model.split('/', 1)[-1] if '/' in model else model
         resolved_model = f'{slugify_provider_from_base_url(url)}/{bare}' if url else bare
         found = False

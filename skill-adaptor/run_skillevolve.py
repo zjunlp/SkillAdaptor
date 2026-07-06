@@ -438,7 +438,7 @@ def setup_config(args):
     config.results_dir = Path(args.output) / args.env
     config.skill_template = args.skill_template
     if not config.api_key:
-        raise ValueError('Missing API key. Set OPENAI_API_KEY or SkillEvolve_API_KEY in secrets/.env')
+        raise ValueError('Missing API key. Set SkillEvolve_API_KEY in secrets/.env')
     config.create_directories()
     config._llm_profile = profile  # type: ignore[attr-defined]
     return config

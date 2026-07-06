@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from adapters.errors import TaskExecutionError
+from core.api_env import chat_key_envs, chat_url_envs, first_env, inject_benchmark_child_env
 from core.agent_trace_resolve import (
     build_steps_from_raw,
     discover_claw_eval_trace,
@@ -41,8 +41,8 @@ class ClawEvalExecutor:
         self.results_dir = self.claw_eval_path / results_dir
         self.results_dir.mkdir(parents=True, exist_ok=True)
         self.artifact_dir = Path(artifact_dir) if artifact_dir else None
-        self.api_key = api_key or os.environ.get('SkillEvolve_API_KEY', '')
-        self.base_url = base_url or os.environ.get('SkillEvolve_BASE_URL', '')
+        self.api_key = api_key or first_env(*chat_key_envs())
+        self.base_url = base_url or first_env(*chat_url_envs())
         self.model = model or os.environ.get('SkillEvolve_MODEL', 'gpt-4.1')
         self._task_skills: Dict[str, str] = {}
         self._task_skill_ids: Dict[str, List[str]] = {}
@@ -104,11 +104,10 @@ class ClawEvalExecutor:
 
     def _env(self) -> Dict[str, str]:
         env = os.environ.copy()
+        inject_benchmark_child_env(env, api_key=self.api_key, base_url=self.base_url, model=self.model)
         if self.api_key:
-            env['OPENAI_API_KEY'] = self.api_key
             env['CLAW_EVAL_MODEL_API_KEY'] = self.api_key
         if self.base_url:
-            env['OPENAI_BASE_URL'] = self.base_url
             env['CLAW_EVAL_MODEL_BASE_URL'] = self.base_url
         if self.model:
             env['CLAW_EVAL_MODEL_ID'] = self.model
