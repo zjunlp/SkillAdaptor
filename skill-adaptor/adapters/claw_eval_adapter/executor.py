@@ -2,13 +2,12 @@
 
 Architecture (paper-aligned, do not collapse these layers):
 
-1. **Harness (OpenClaw / Claude / Codex / …)** — prepare runtime, inject SKILL.md
-   into OpenClaw workspace (and harness-specific mirrors). This is the SkillAdaptor
-   skill-injection surface shared with PinchBench.
-2. **claw-eval official agent loop** (`python -m claw_eval.cli run`) — OpenClaw-
-   compatible runner that starts mock HTTP services and emits `tool_dispatch`
-   traces. Official graders **require** this format; bare OpenClaw npm sessions
-   alone cannot score Claw-Eval tasks.
+1. **Skill visibility** — write ``skills/skill-adaptor-evolved/SKILL.md`` (+ mirrors),
+   inline body into ``system_prompt_prefix`` (claw-eval agent sees this), catalog under
+   ``prompt.skills``, then OpenClaw/Claude/Codex harness inject. Missing disk/prefix → abort.
+2. **claw-eval official agent loop** (`python -m claw_eval.cli run`) — starts mock
+   HTTP services and emits `tool_dispatch` traces. Official graders **require** this;
+   bare OpenClaw npm sessions alone cannot score Claw-Eval tasks.
 3. **Official judge** — `google/gemini-3-flash-preview` from claw-eval
    `config_general.yaml` (never silently replace with the chat/agent model).
 4. **Step pipeline** — JSONL (+ optional OpenClaw session merge) → per-step
@@ -52,6 +51,7 @@ from core.step_trace_gate import require_actionable_trace
 from core.types import Skill, Step, Trajectory
 from runtime.execution_binding import apply_prompt_prefix
 from runtime.harness import AgentHarness, get_harness
+from runtime.harness.openclaw import ensure_openclaw_skill_markdown
 
 from .action_extractor import extract_action_content
 from .official_config import (
@@ -66,10 +66,11 @@ from .task_io import read_claw_eval_prompt
 class ClawEvalExecutor:
     """OpenClaw-harness skill inject + claw-eval official run/grade + step attribution.
 
-    Skill visibility (harness-first, then claw-eval prompt.skills):
-      1. ~/.openclaw/workspace/skills/skill-adaptor-evolved/SKILL.md  (OpenClaw)
-      2. <CLAW_EVAL_PATH>/skills/skill-adaptor-evolved/SKILL.md       (claw-eval)
-      3. <CLAW_EVAL_PATH>/.skill/SKILL.md + per-task mirror
+    Skill visibility (claw-eval agent loop + OpenClaw harness):
+      1. <CLAW_EVAL_PATH>/skills/skill-adaptor-evolved/SKILL.md  (primary disk)
+      2. system_prompt_prefix inlines skill body (agent-visible; sandbox may lack file)
+      3. prompt.skills catalog entry (load_via_tool_call=false)
+      4. ~/.openclaw/workspace/skills/skill-adaptor-evolved/SKILL.md  (harness)
 
     Step-level attribution: after JSONL/OpenClaw merge, StepSkillRetriever annotates
     each step's skills_used; Localizer uses skills_at_fault = steps[t*].skills_used.
@@ -172,12 +173,77 @@ class ClawEvalExecutor:
             self.tasks_dir / task_id / '.skill' / 'SKILL.md',
         ]
 
+    def _normalize_skill_markdown(self, skill_text: str) -> str:
+        """Canonical SKILL.md body (YAML frontmatter + markdown) for inject + config."""
+        return ensure_openclaw_skill_markdown(skill_text, skill_id=self.OPENCLAW_EVOLVED_SKILL_DIR)
+
+    def _primary_skill_path(self) -> Path:
+        """Path referenced by claw-eval prompt.skills (cwd = claw_eval_path)."""
+        return self.claw_eval_path / 'skills' / self.OPENCLAW_EVOLVED_SKILL_DIR / 'SKILL.md'
+
+    def _verify_skill_files(self, task_id: str, skill_text: str) -> None:
+        """Abort if claw-eval cannot see the evolved skill on disk."""
+        primary = self._primary_skill_path()
+        if not primary.exists():
+            raise TaskExecutionError(
+                f'Skill inject verification failed for {task_id}: missing {primary}'
+            )
+        on_disk = primary.read_text(encoding='utf-8')
+        if len(on_disk.strip()) < 40:
+            raise TaskExecutionError(
+                f'Skill inject verification failed for {task_id}: {primary} is empty/too short'
+            )
+        stripped = on_disk.lstrip()
+        if not stripped.startswith('---'):
+            raise TaskExecutionError(
+                f'Skill inject verification failed for {task_id}: {primary} missing YAML frontmatter'
+            )
+        parts = stripped.split('---', 2)
+        if len(parts) < 3 or 'name:' not in parts[1]:
+            raise TaskExecutionError(
+                f'Skill inject verification failed for {task_id}: frontmatter name missing in {primary}'
+            )
+        # Fingerprint: written body must contain a stable marker from the source text.
+        marker = '# SKILLS' if '# SKILLS' in skill_text else skill_text.strip()[:80]
+        if marker and marker not in on_disk:
+            raise TaskExecutionError(
+                f'Skill inject verification failed for {task_id}: disk content mismatch vs injected text'
+            )
+        for path in self._skill_md_paths(task_id):
+            if not path.exists() or path.stat().st_size < 20:
+                raise TaskExecutionError(
+                    f'Skill inject verification failed for {task_id}: mirror missing/empty: {path}'
+                )
+
     def _inject_skills_to_task(self, task_id: str) -> None:
-        """Harness-first skill inject, then claw-eval SKILL.md mirrors for prompt.skills."""
-        skill_text = self._task_skills.get(task_id, '')
-        if not skill_text:
+        """Write claw-eval SKILL.md mirrors (agent-visible), then harness inject.
+
+        claw-eval's official loop reads skills via ``system_prompt_prefix`` +
+        ``prompt.skills`` (not the sandbox). Disk file at
+        ``skills/skill-adaptor-evolved/SKILL.md`` must exist and match.
+        OpenClaw harness inject is additional (session merge / PinchBench parity).
+        """
+        raw = self._task_skills.get(task_id, '')
+        if not raw or not str(raw).strip():
             return
-        # Primary: OpenClaw / Claude / Codex harness surface (same as PinchBench).
+        skill_text = self._normalize_skill_markdown(str(raw))
+        self._task_skills[task_id] = skill_text
+
+        # 1) claw-eval paths first — these are what the official agent loop needs.
+        for path in self._skill_md_paths(task_id):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(skill_text, encoding='utf-8')
+        self._verify_skill_files(task_id, skill_text)
+        print(
+            f'[ClawEval] Skill files ok primary={self._primary_skill_path()} '
+            f'chars={len(skill_text)}'
+        )
+
+        # 2) Harness (OpenClaw / Claude / Codex). Required on paper path.
+        skip_harness = self._skip_openclaw()
+        if skip_harness:
+            print('[ClawEval] WARNING: CLAW_EVAL_SKIP_OPENCLAW=1 — skipping harness inject')
+            return
         try:
             if hasattr(self.harness, 'prepare_runtime'):
                 self.harness.prepare_runtime(
@@ -192,11 +258,9 @@ class ClawEvalExecutor:
         except Exception as exc:
             raise TaskExecutionError(
                 f'Harness skill injection failed for {task_id}: {exc}. '
-                'OpenClaw gateway must be up; or set agent_harness / fix harness.'
+                'OpenClaw gateway must be up; or set agent_harness / fix harness. '
+                'Offline probe only: CLAW_EVAL_SKIP_OPENCLAW=1 (claw-eval files already written).'
             ) from exc
-        for path in self._skill_md_paths(task_id):
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(skill_text, encoding='utf-8')
 
     def _clear_skills_from_task(self, task_id: str) -> None:
         for path in self._skill_md_paths(task_id):
@@ -215,16 +279,22 @@ class ClawEvalExecutor:
         cfg_dir = self.claw_eval_path / '.skill-adaptor-configs'
         cfg_dir.mkdir(parents=True, exist_ok=True)
         cfg_path = cfg_dir / f'{task_id}_run.yaml'
-        skill_text = (self._task_skills.get(task_id) or '').strip()
+        raw = (self._task_skills.get(task_id) or '').strip()
+        skill_text = self._normalize_skill_markdown(raw) if raw else ''
+        if skill_text:
+            self._task_skills[task_id] = skill_text
         skill_rel = 'skills/skill-adaptor-evolved/SKILL.md'
         prefix_parts: list[str] = []
         if self._task_prompt_prefixes.get(task_id):
             prefix_parts.append(self._task_prompt_prefixes[task_id].strip())
         if skill_text:
+            # Primary visibility for claw-eval agent loop: inline body (sandbox may
+            # not mount host skills/). Catalog entry still listed under prompt.skills.
             body = skill_text[:4500]
             prefix_parts.append(
-                '# SkillAdaptor evolved skills (mandatory when relevant)\n'
-                'Follow the procedures below. Prefer these over ad-hoc guesses.\n\n'
+                '# SkillAdaptor evolved skills (INLINED — follow these procedures)\n'
+                'The skill body below is authoritative for this task. Prefer it over '
+                'ad-hoc guesses. You do not need a sandbox read of SKILL.md to apply it.\n\n'
                 f'{body}\n'
             )
         payload, warnings = build_run_config_payload(
@@ -246,6 +316,26 @@ class ClawEvalExecutor:
             f'(official default={OFFICIAL_JUDGE_MODEL})'
         )
         write_run_config_yaml(cfg_path, payload)
+        if skill_text:
+            model = payload.get('model') or {}
+            prefix = (model.get('system_prompt_prefix') or '').strip()
+            skills_default = ((payload.get('prompt') or {}).get('skills') or {}).get('default') or []
+            if not prefix or 'SkillAdaptor evolved skills' not in prefix:
+                raise TaskExecutionError(
+                    f'Run config for {task_id} missing inlined skill system_prompt_prefix — '
+                    'agent would not see evolved skills.'
+                )
+            if not skills_default:
+                raise TaskExecutionError(
+                    f'Run config for {task_id} missing prompt.skills.default entry — '
+                    'skill catalog not attached.'
+                )
+            primary = self._primary_skill_path()
+            if not primary.exists():
+                raise TaskExecutionError(
+                    f'Run config references {skill_rel} but file missing: {primary}. '
+                    'Call inject before writing config.'
+                )
         return cfg_path
 
     def _skip_openclaw(self) -> bool:

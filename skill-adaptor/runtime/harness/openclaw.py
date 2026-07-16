@@ -5,7 +5,25 @@ from pathlib import Path
 from typing import Optional
 from core.openclaw_agent_setup import prepare_openclaw_for_model
 from core.openclaw_hygiene import clear_bootstrap_files, discover_workspace_root
+from runtime.skill_export import build_frontmatter
+
 EVOLVED_SKILL_DIR = 'skill-adaptor-evolved'
+
+
+def ensure_openclaw_skill_markdown(skill_text: str, *, skill_id: str = EVOLVED_SKILL_DIR) -> str:
+    """OpenClaw / claw-eval SKILL.md needs YAML frontmatter (name + description)."""
+    if not skill_text or not skill_text.strip():
+        return ''
+    if skill_text.lstrip().startswith('---'):
+        return skill_text if skill_text.endswith('\n') else skill_text + '\n'
+    fm = build_frontmatter(
+        skill_id,
+        'SkillAdaptor evolved skill — follow procedures when relevant.',
+        'Apply when the task matches the failure pattern this skill was adapted for.',
+    )
+    body = skill_text.strip()
+    return fm + body + '\n'
+
 
 class OpenClawHarness:
     name = 'openclaw'
@@ -30,12 +48,17 @@ class OpenClawHarness:
     def inject_skill_text(self, skill_text: str, *, benchmark_root: Path, task_id: Optional[str]=None) -> None:
         if not skill_text:
             return
+        md = ensure_openclaw_skill_markdown(skill_text)
         repo_skill_dir = benchmark_root / '.skill'
         repo_skill_dir.mkdir(parents=True, exist_ok=True)
-        (repo_skill_dir / 'SKILL.md').write_text(skill_text, encoding='utf-8')
+        (repo_skill_dir / 'SKILL.md').write_text(md, encoding='utf-8')
         oc_dir = self._openclaw_skill_path().parent
         oc_dir.mkdir(parents=True, exist_ok=True)
-        self._openclaw_skill_path().write_text(skill_text, encoding='utf-8')
+        self._openclaw_skill_path().write_text(md, encoding='utf-8')
+        # Fail closed: do not pretend inject succeeded if files are missing/empty.
+        for path in (repo_skill_dir / 'SKILL.md', self._openclaw_skill_path()):
+            if not path.exists() or path.stat().st_size < 20:
+                raise RuntimeError(f'OpenClaw skill inject wrote empty/missing file: {path}')
 
     def clear_skill_injection(self, *, benchmark_root: Path, task_id: Optional[str]=None) -> None:
         for skill_file in (benchmark_root / '.skill' / 'SKILL.md', self._openclaw_skill_path()):
