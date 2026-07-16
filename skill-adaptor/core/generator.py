@@ -64,10 +64,16 @@ class Generator:
         if self._is_meta_skill(skill_data, body_preview):
             print(f"      [Generator] Rejected meta-skill proposal: {skill_data.get('title', '')[:60]}")
             return None
+        if self._is_trivial_skill(skill_data, body_preview):
+            print(f"      [Generator] Rejected trivial/shallow skill: {skill_data.get('title', '')[:60]}")
+            return None
         self._skill_counter += 1
         skill_id = f'gen_{fault.task_id}_{self._skill_counter}'
         body = self._format_skill_body(skill_data, fault)
         body = self._compact_skill_body(body)
+        if self._is_trivial_skill(skill_data, body):
+            print(f'      [Generator] Rejected after compact (too shallow): {skill_id}')
+            return None
         domain_category = self._infer_domain_category(fault.task_id)
         return Skill(id=skill_id, title=skill_data.get('title', self._generate_title(fault)), description=skill_data.get('principle', fault.improvement_principle), body=body, when_to_apply=self._sanitize_trigger(skill_data.get('when_to_apply', self._infer_when_to_apply(fault)), fault.task_id), created_from=fault.task_id, domain_category=domain_category)
 
@@ -149,6 +155,39 @@ class Generator:
         if not has_domain and (not has_proc_domain):
             return True
         return hits >= 2 or (hits >= 1 and (not has_domain))
+
+    def _is_trivial_skill(self, skill_data: Dict[str, Any], body: str) -> bool:
+        """Reject shallow templates that are not actionable LLM distillations."""
+        procedure = skill_data.get('procedure') or []
+        if not isinstance(procedure, list):
+            procedure = []
+        steps = [str(s).strip() for s in procedure if str(s).strip()]
+        if len(steps) < 3:
+            return True
+        if len((body or '').strip()) < 220:
+            return True
+        principle = str(skill_data.get('principle') or '').strip()
+        when = str(skill_data.get('when_to_apply') or '').strip()
+        if len(principle) < 40 or len(when) < 20:
+            return True
+        # Generic filler with no tools/files/commands
+        shallow = (
+            'analyze the situation',
+            'apply principle',
+            'verify the outcome',
+            'try again',
+            'be careful',
+            'think step by step',
+        )
+        joined = ' '.join(steps).lower()
+        shallow_hits = sum(1 for s in shallow if s in joined)
+        has_domain = any(h in joined or h in body.lower() for h in self._DOMAIN_HINTS)
+        if shallow_hits >= 2 and not has_domain:
+            return True
+        # Each step must carry some substance
+        if sum(1 for s in steps if len(s) < 24) >= 2:
+            return True
+        return False
 
     def _load_task_brief(self, task_id: str) -> str:
         return load_task_context_for_inference(task_id)
