@@ -10,6 +10,8 @@ class ClawEvalConfig(SkillAdaptorConfig):
     success_delta_threshold: float = 0.01
     avg_score_delta_threshold: float = 0.01
     k_reject_threshold: int = 3
+    # Paper Appendix C.1: cosine floor 0.45 → top-10 → LLM rerank (core/skill_rerank).
+    skill_match_threshold: float = 0.45
     output_dir: Path = field(default_factory=lambda: Path('./claw_eval_output'))
     results_dir: Path = field(default_factory=lambda: Path('./claw_eval_results'))
 
@@ -20,6 +22,7 @@ class ClawEvalConfig(SkillAdaptorConfig):
         config_dict['success_delta_threshold'] = 0.01
         config_dict['avg_score_delta_threshold'] = 0.01
         config_dict['k_reject_threshold'] = 3
+        config_dict['skill_match_threshold'] = 0.45
         return cls(**config_dict)
 
     def to_summary(self) -> dict:

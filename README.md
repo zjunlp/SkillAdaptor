@@ -79,8 +79,9 @@ openclaw gateway status
 ## Quick start
 
 ```bash
+# OpenClaw gateway must be running for live harness inject (see Agents above)
 cd skill-adaptor
-python run_plugin.py init --workspace ../my-workspace --harness claude-code
+python run_plugin.py init --workspace ../my-workspace --harness openclaw
 # Add *.md task briefs under ../my-workspace/input_task/
 python run_plugin.py --workspace ../my-workspace --dry-run
 python run_plugin.py --workspace ../my-workspace --max-iterations 2

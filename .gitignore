@@ -4,6 +4,9 @@
 # Never: secrets, keys, URLs, workspaces, run artifacts, local docs/tests harness
 # =============================================================================
 
+/rebuttal
+
+
 # --- SECRETS & CREDENTIALS (highest priority) ---
 secrets/
 **/secrets/
@@ -116,14 +119,91 @@ env/
 dist/
 build/
 
-# --- IDE / OS ---
+# --- IDE / OS / local workspace files ---
 .idea/
 .vscode/
 .cursor/
+*.code-workspace
+skill-adaptor.code-workspace
 *.swp
 *~
 .DS_Store
 Thumbs.db
+
+# --- Local benchmark checkouts under this repo (never commit) ---
+/claw-eval/
+/_claw_eval*/
+# External roots (D:\Git\claw-eval etc.) are pointed by secrets only
+
+# --- Claw-Eval / SkillAdaptor local run residue ---
+**/traces/
+**/results/
+**/claw_eval_output/
+**/claw_eval_results/
+**/*_raw_steps.json
+**/strict_smoke_out/
+**/.skill-adaptor-configs/
+_claw_eval_live_art/
+_claw_err.txt
+**/_claw_err.txt
+skill-adaptor/adapters/claw_eval_adapter/live_one_task.py
+
+# --- Claw-Eval LOCAL-ONLY (wiring / smoke / fixtures — never upload) ---
+# Official upload keeps: executor, official_config, task_*, paper_split, pass_at_k,
+# constraint_provider, generator_patch, judge_official.yaml, PAPER_EVAL.md, README.
+skill-adaptor/adapters/claw_eval_adapter/wiring_judge.py
+skill-adaptor/adapters/claw_eval_adapter/strict_smoke.py
+skill-adaptor/adapters/claw_eval_adapter/micro_live_smoke.py
+skill-adaptor/adapters/claw_eval_adapter/evolution_chain_smoke.py
+skill-adaptor/adapters/claw_eval_adapter/rerank_ab_smoke.py
+skill-adaptor/adapters/claw_eval_adapter/local_comm_batch.py
+skill-adaptor/adapters/claw_eval_adapter/skill_injecting_executor.py
+skill-adaptor/adapters/claw_eval_adapter/fixtures/
+skill-adaptor/adapters/claw_eval_adapter/**/fixtures/
+**/claw_eval_evolve_verify*/
+**/run_evolve_verify.py
+**/_micro_map.py
+**/_patch_report.py
+**/holdout_after_bank_growth.json
+**/evolve_verify_report.json
+**/final_skills.json
+**/micro_map_result.json
+
+# Local evolution / micro / wiring artifacts (never commit)
+**/claw_eval_evolve*/
+**/claw_eval_micro*/
+**/claw_eval_evolve_chain*/
+**/claw_eval_local_*/
+artifacts/claw_eval_*/
+**/extracted_skills.json
+**/evolution_report.json
+**/A_baseline.json
+**/B_extract.json
+**/C_with_skill.json
+**/D_link.json
+**/E_eval.json
+**/baseline_metrics.json
+**/batch_report.json
+**/rerank_ab.json
+# Local manifests used for wiring smokes (paper splits stay unpublished)
+benchmarks/manifests/claw_eval_evolve*.json
+benchmarks/manifests/claw_eval_official_micro*.json
+benchmarks/manifests/claw_eval_smoke*.json
+benchmarks/manifests/claw_eval_local*.json
+**/claw_eval_*_batch*.json
+**/claw_eval_micro_*.json
+**/claw_eval_paper_66_133.json
+
+# Local wiring must never commit keys; secrets/.env already ignored
+**/judge.local.yaml
+**/judge_wiring.env
+secrets/local/
+**/secrets/local/
+
+SkillAdaptor_artifacts/
+SkillAdaptor_results/
+**/SkillAdaptor_artifacts/
+**/SkillAdaptor_results/
 
 # --- Legacy output dirs ---
 SkillAdaptor_output/

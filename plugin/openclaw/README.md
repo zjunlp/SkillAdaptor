@@ -1,8 +1,38 @@
 # OpenClaw plugin
 
-OpenClaw provides the UI; this repo provides the Python evolution engine under `skill-adaptor/`.
+OpenClaw is the **default harness** for SkillAdaptor (workspace / PinchBench / Claw-Eval).
+This repo ships the Python evolution engine; the TypeScript UI plugin lives in a sibling package.
 
-## Install
+## Prerequisites (live runs)
+
+```powershell
+npm install -g openclaw
+openclaw gateway start
+openclaw gateway status
+```
+
+Windows: if `openclaw` is not on PATH, set in `secrets/.env`:
+
+```text
+OPENCLAW_CLI=C:\Users\you\AppData\Roaming\npm\openclaw.cmd
+```
+
+Load secrets from repo root:
+
+```powershell
+. .\scripts\load_secrets.ps1
+```
+
+Required for live evolve: chat + embedding keys. Claw-Eval also needs official judge credentials
+(`CLAW_EVAL_JUDGE_*` or `OPENROUTER_API_KEY` serving `google/gemini-3-flash-preview`).
+
+Skill inject surface (written by harness):
+
+```text
+~/.openclaw/workspace/skills/skill-adaptor-evolved/SKILL.md
+```
+
+## Install (UI plugin)
 
 **TypeScript plugin** (UI):
 
@@ -37,12 +67,29 @@ The bridge calls `run_plugin.py` and prints `EVOLVE_OUTPUT_FILE=...` for the UI 
 | Field | Meaning |
 |-------|---------|
 | `skillAdaptorRoot` | Directory containing `run_plugin.py` |
-| `benchmarkEnv` | `pinchbench`, `claw-eval`, or `webshop` |
+| `benchmarkEnv` | `pinchbench`, `claw-eval`, `workspace`, or `webshop` |
 | `allAsTest` | `false` for train/val split; `true` for quick probes only |
 | `maxIterations` | Evolution loop cap |
 
-CLI equivalents: `--harness openclaw`, `--program-git` for optional `skill-adaptor/program/*` branches.
+CLI (no TS UI required):
+
+```powershell
+cd skill-adaptor
+python run_plugin.py init --workspace ../my-workspace --harness openclaw
+python run_plugin.py --workspace ../my-workspace --harness openclaw --dry-run
+python run_plugin.py --workspace ../my-workspace --harness openclaw --max-iterations 2
+```
+
+## Benchmarks via OpenClaw harness
+
+| Env | Extra env | Notes |
+|-----|-----------|--------|
+| `workspace` | none | Tasks in `input_task/*.md` |
+| `pinchbench` | `PINCHBENCH_PATH` | Gateway required |
+| `claw-eval` | `CLAW_EVAL_PATH` + judge keys + `--task-manifest` | OpenClaw inject + claw-eval CLI grade |
+
+Do not collapse Claw-Eval to “OpenClaw chat only” — graders need `claw_eval.cli run` + official judge.
 
 ## Secrets
 
-Load `secrets/.env` via `scripts/load_secrets.ps1` or `load_secrets.sh`. Set `PINCHBENCH_PATH` (or `CLAW_EVAL_PATH` / `WEBSHOP_PATH`) for live benchmark runs.
+See root `.env.example`. Never commit `secrets/.env` or local task-ID manifests.

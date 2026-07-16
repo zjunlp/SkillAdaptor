@@ -22,13 +22,25 @@ def resolve_embedding_model(explicit: str | None = None) -> str:
 
 
 def resolve_openrouter_embedding_model() -> str:
-    """Embedding model for OpenRouter profile when no separate embedding API is configured."""
+    """Embedding model for OpenRouter profile when no separate embedding API is configured.
+
+    Prefer an explicit ``SkillAdaptor_EMBEDDING_MODEL``. If only chat OpenRouter
+    credentials exist, fall back to ``openai/text-embedding-3-small`` and print a
+    one-line warning (not a silent paper-model claim).
+    """
     import os
+    import sys
     explicit = first_env(EMBEDDING_MODEL_VAR)
     if explicit:
         return explicit
     if os.environ.get(EMBEDDING_BASE_URL_VAR, '').strip():
         return PRIMARY_EMBEDDING_MODEL
+    print(
+        f'[Embedding] WARNING: OpenRouter chat-only profile — using '
+        f'{OPENROUTER_EMBEDDING_FALLBACK!r}. For paper default set '
+        f'{EMBEDDING_MODEL_VAR}={PRIMARY_EMBEDDING_MODEL!r} with a serving endpoint.',
+        file=sys.stderr,
+    )
     return OPENROUTER_EMBEDDING_FALLBACK
 
 

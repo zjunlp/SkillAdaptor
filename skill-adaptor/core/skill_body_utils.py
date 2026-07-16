@@ -497,7 +497,11 @@ def coerce_degraded_bank_fault(
 
     task_text = f'{trajectory.task_description or ""}'
     deliverable_mismatch = bool(fault.deliverable_targets) or _task_mentions_command_deliverable(task_text)
-    if not deliverable_mismatch:
+    # Claw-Eval / non-file tasks: if a skill was active at t*, prefer repair over generate.
+    active_skill = bool(fault.skills_at_fault) and any(
+        sid in skill_bank for sid in (fault.skills_at_fault or [])
+    )
+    if not deliverable_mismatch and not active_skill:
         return fault
 
     if fault.fault_type == FaultType.SKILL_MISSING:

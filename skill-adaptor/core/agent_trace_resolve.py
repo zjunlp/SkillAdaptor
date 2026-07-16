@@ -70,7 +70,13 @@ def _text_from_blocks(content: Any) -> str:
 
 
 def steps_from_claw_eval_events(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Convert Claw-Eval JSONL trace events to webshop-style steps."""
+    """Convert Claw-Eval JSONL trace events to webshop-style steps.
+
+    Observation semantics: state *before* the action. When one assistant turn
+    emits multiple parallel ``tool_use`` blocks, every tool step in that turn
+    shares the same pre-turn observation (do not clear pending between them).
+    Tool results land in ``pending_obs`` for the *next* turn.
+    """
     raw_steps: List[Dict[str, Any]] = []
     pending_obs: List[str] = []
     step_idx = 0
@@ -98,30 +104,47 @@ def steps_from_claw_eval_events(events: List[Dict[str, Any]]) -> List[Dict[str, 
                         if text.strip():
                             pending_obs.append(text[:500])
             elif role == 'assistant':
+                pre_obs = '\n'.join(pending_obs) if pending_obs else '(No observation)'
                 tool_count = 0
+                text_bits: List[str] = []
                 for block in blocks:
                     if not isinstance(block, dict):
                         continue
                     btype = block.get('type')
                     if btype == 'tool_use':
                         action = f"{block.get('name')}({json.dumps(block.get('input', {}), ensure_ascii=False)})"
-                        observation = '\n'.join(pending_obs) if pending_obs else '(No observation)'
                         raw_steps.append(
                             {
                                 'step': step_idx,
                                 'type': 'action',
-                                'observation': observation,
+                                'observation': pre_obs,
                                 'action': action,
                                 'reward': 0.0,
                                 'done': False,
                             }
                         )
                         step_idx += 1
-                        pending_obs = []
                         tool_count += 1
                     elif btype == 'text' and block.get('text'):
-                        pending_obs.append(f"[Response] {str(block['text'])[:300]}")
-                if tool_count == 0 and pending_obs:
+                        text_bits.append(f"[Response] {str(block['text'])[:300]}")
+                if tool_count:
+                    # Results for this turn arrive as tool_dispatch / tool_result next.
+                    pending_obs = []
+                elif text_bits:
+                    observation = '\n'.join(pending_obs + text_bits) if pending_obs else '\n'.join(text_bits)
+                    raw_steps.append(
+                        {
+                            'step': step_idx,
+                            'type': 'action',
+                            'observation': observation or '(No observation)',
+                            'action': '(assistant response)',
+                            'reward': 0.0,
+                            'done': False,
+                        }
+                    )
+                    step_idx += 1
+                    pending_obs = []
+                elif pending_obs and not tool_count:
                     observation = '\n'.join(pending_obs)
                     raw_steps.append(
                         {
@@ -155,6 +178,34 @@ def steps_from_claw_eval_events(events: List[Dict[str, Any]]) -> List[Dict[str, 
 
 def steps_from_claw_eval_jsonl(path: Path) -> List[Dict[str, Any]]:
     return steps_from_claw_eval_events(parse_jsonl_events(path))
+
+
+def extract_claw_eval_score(trace_path: Optional[Path]) -> Dict[str, Any]:
+    """Read official grader score from a Claw-Eval JSONL trace.
+
+    ``found=True`` when a grading event actually carried score/passed fields
+    (including legitimate zeros). Callers must not treat found=False the same
+    as score=0.
+    """
+    out: Dict[str, Any] = {'task_score': 0.0, 'passed': False, 'found': False}
+    if not trace_path or not Path(trace_path).exists():
+        return out
+    events = parse_jsonl_events(Path(trace_path))
+    for ev in events:
+        etype = ev.get('type')
+        if etype in ('trace_end', 'grading_result'):
+            has_score = 'task_score' in ev
+            has_passed = 'passed' in ev
+            if not has_score and not has_passed:
+                continue
+            out['found'] = True
+            if has_score:
+                out['task_score'] = float(ev.get('task_score') or 0.0)
+            if has_passed:
+                out['passed'] = bool(ev.get('passed'))
+            elif float(out['task_score']) >= 1.0:
+                out['passed'] = True
+    return out
 
 
 def resolve_agent_trajectory_steps(
@@ -204,8 +255,14 @@ def build_steps_from_raw(
     skills_used: List[str],
     step_provenance: str,
 ) -> List[Step]:
+    """Build ``Step`` objects; prefer per-step ``skills_used`` when present on raw rows."""
     steps: List[Step] = []
     for i, rs in enumerate(raw_steps):
+        step_skills = rs.get('skills_used')
+        if step_skills:
+            resolved_skills = list(step_skills)
+        else:
+            resolved_skills = list(skills_used)
         steps.append(
             Step(
                 index=int(rs.get('index', i)),
@@ -213,7 +270,7 @@ def build_steps_from_raw(
                 action=str(rs.get('action', '')),
                 reward=float(rs.get('reward', 0.0) or 0.0),
                 done=bool(rs.get('done', False)),
-                skills_used=list(skills_used),
+                skills_used=resolved_skills,
                 metadata={
                     'step_provenance': rs.get('step_provenance', step_provenance),
                     'step_source': rs.get('source', 'merged'),

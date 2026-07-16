@@ -22,6 +22,7 @@ from core.api_env import (
     chat_model_envs,
 )
 from core.openclaw_agent_setup import prepare_openclaw_for_model
+from core.openclaw_hygiene import cleanup_agent_sessions, ensure_gateway_running, openclaw_agent_id, require_gateway_running
 from adapters.errors import TaskExecutionError, PlaceholderDeliverableError
 from .trajectory_extractor import extract_trajectory_for_task, save_trajectory
 from .skill_tracker import create_step_tracker

@@ -195,6 +195,11 @@ def run_claw_eval(args, config):
     from core.openclaw_hygiene import ensure_gateway_running
     from adapters.claw_eval_adapter.executor import ClawEvalExecutor
     from adapters.claw_eval_adapter.hints import install_claw_eval_hints
+    from adapters.claw_eval_adapter.task_context import install_claw_eval_task_context
+    from adapters.claw_eval_adapter.config_patch import ClawEvalConfig
+    from adapters.claw_eval_adapter.generator_patch import ClawEvalGenerator
+    from adapters.claw_eval_adapter.constraint_provider import ClawEvalConstraintProvider
+
     install_claw_eval_hints()
     print('\n' + '=' * 60)
     print('SkillAdaptor - Claw-Eval Environment')
@@ -206,11 +211,48 @@ def run_claw_eval(args, config):
     claw_eval_path = os.environ.get('CLAW_EVAL_PATH')
     if not claw_eval_path:
         raise ValueError('CLAW_EVAL_PATH is required for Claw-Eval execution')
+    from adapters.claw_eval_adapter.official_config import OFFICIAL_JUDGE_MODEL, resolve_official_judge, allow_nonofficial_judge
+    judge_cfg, judge_warns = resolve_official_judge(
+        agent_api_key=config.api_key,
+        agent_base_url=config.base_url,
+    )
+    print(f'[Setup] Official judge model_id={judge_cfg.get("model_id")} (locked={OFFICIAL_JUDGE_MODEL})')
+    for w in judge_warns:
+        print(f'[Setup] judge: {w}')
+    if judge_cfg.get('model_id') != OFFICIAL_JUDGE_MODEL:
+        if not allow_nonofficial_judge():
+            raise ValueError(
+                f'Judge model_id={judge_cfg.get("model_id")} is not official '
+                f'{OFFICIAL_JUDGE_MODEL}. Submitted runs require official judge. '
+                'Local wiring: python -m adapters.claw_eval_adapter.wiring_judge'
+            )
+        print(
+            f'[Setup] WARNING: non-official judge (wiring only) — not paper-comparable'
+        )
+    if not judge_cfg.get('api_key'):
+        raise ValueError(
+            'Claw-Eval official judge needs CLAW_EVAL_JUDGE_API_KEY + CLAW_EVAL_JUDGE_BASE_URL '
+            f'(or OPENROUTER_API_KEY) serving {OFFICIAL_JUDGE_MODEL}'
+        )
     tasks_dir = os.environ.get('CLAW_EVAL_TASKS_DIR', 'tasks')
+    install_claw_eval_task_context(claw_eval_path, tasks_dir)
     results_dir = os.environ.get('CLAW_EVAL_RESULTS_DIR', 'results')
     artifact_dir = config.artifact_dir
+    # Claw-Eval adoption thresholds (lower initial deltas); keep all other base config fields.
+    config = ClawEvalConfig.from_base(config)
     llm_client = build_openai_client(config)
-    executor = ClawEvalExecutor(claw_eval_path=claw_eval_path, python_cmd=os.environ.get('CLAW_EVAL_PYTHON') or os.environ.get('PINCHBENCH_PYTHON'), tasks_dir=tasks_dir, results_dir=results_dir, artifact_dir=artifact_dir, api_key=config.api_key, base_url=config.base_url, model=config.model)
+    harness = get_harness(getattr(config, 'agent_harness', None), project_root=getattr(config, 'program_workspace', None))
+    executor = ClawEvalExecutor(
+        claw_eval_path=claw_eval_path,
+        python_cmd=os.environ.get('CLAW_EVAL_PYTHON') or os.environ.get('PINCHBENCH_PYTHON'),
+        tasks_dir=tasks_dir,
+        results_dir=results_dir,
+        artifact_dir=artifact_dir,
+        api_key=config.api_key,
+        base_url=config.base_url,
+        model=config.model,
+        harness=harness,
+    )
     all_tasks = executor.list_tasks()
     if not all_tasks:
         raise ValueError('No Claw-Eval tasks found. Check CLAW_EVAL_PATH and CLAW_EVAL_TASKS_DIR.')
@@ -233,6 +275,7 @@ def run_claw_eval(args, config):
     if overlap and (not manifest.get('allow_train_val_overlap')):
         raise ValueError(f'Data leakage detected: {sorted(overlap)}')
     ce_tasks_root = executor.tasks_dir
+    os.environ['SkillAdaptor_BENCHMARK_ENV'] = 'claw-eval'
     from runtime.retrieval_index import build_retrieval_index
     retrieval_index = build_retrieval_index(manifest, tasks_dir=ce_tasks_root, config=config)
     if retrieval_index.labels:
@@ -240,39 +283,122 @@ def run_claw_eval(args, config):
         for tid in sorted(retrieval_index.labels.keys())[:12]:
             lab = retrieval_index.labels[tid]
             print(f'  {tid}: category={lab.category} tags={lab.tags}')
-    policy_adapter = PinchBenchPolicyAdapter(artifact_dir, api_key=config.embedding_api_key, base_url=config.embedding_base_url, embedding_model=config.embedding_model, similarity_threshold=config.skill_match_threshold, cross_task_threshold=config.cross_task_match_threshold, retrieval_index=retrieval_index)
+    policy_adapter = PinchBenchPolicyAdapter(
+        artifact_dir,
+        api_key=config.embedding_api_key,
+        base_url=config.embedding_base_url,
+        embedding_model=config.embedding_model,
+        similarity_threshold=config.skill_match_threshold,
+        cross_task_threshold=config.cross_task_match_threshold,
+        retrieval_index=retrieval_index,
+        llm_client=llm_client,
+        llm_model=config.model,
+    )
+    initial_bank = None
+    if args.skills:
+        print(f'[Setup] Loading skills from {args.skills}')
+        from core.skill_bank import SkillBankManager
+        manager = SkillBankManager()
+        manager.load(args.skills)
+        initial_bank = {s.id: s for s in manager.list_skills()}
 
     def _task_category(task_id: str) -> str:
         return retrieval_index.category_of(task_id, ce_tasks_root)
 
     def eval_skill_bank(skill_bank, scope_tasks: Optional[List[str]]=None, baseline_metrics=None, candidate_skill_id: Optional[str]=None):
-        return evaluate_pinchbench_bank(executor, policy_adapter, validation_tasks, skill_bank, tasks_dir=executor.tasks_dir, template=args.skill_template, model=config.model, scope_tasks=scope_tasks, embedding_api_key=config.embedding_api_key, embedding_base_url=config.embedding_base_url, embedding_model=config.embedding_model, candidate_skill_id=candidate_skill_id, baseline_metrics=baseline_metrics)
-    orchestrator = SkillAdaptorOrchestrator(config, llm_client=llm_client, benchmark_constraints=policy_adapter.get_revision_constraints(), task_category_fn=_task_category)
-    print('[Setup] Injected Claw-Eval benchmark constraints into Reviser')
+        return evaluate_pinchbench_bank(
+            executor,
+            policy_adapter,
+            validation_tasks,
+            skill_bank,
+            tasks_dir=executor.tasks_dir,
+            template=args.skill_template,
+            model=config.model,
+            scope_tasks=scope_tasks,
+            global_prior=orchestrator.global_prior,
+            embedding_api_key=config.embedding_api_key,
+            embedding_base_url=config.embedding_base_url,
+            embedding_model=config.embedding_model,
+            candidate_skill_id=candidate_skill_id,
+            baseline_metrics=baseline_metrics,
+        )
+
+    orchestrator = SkillAdaptorOrchestrator(
+        config,
+        llm_client=llm_client,
+        benchmark_constraints=ClawEvalConstraintProvider.get_constraints(),
+        task_category_fn=_task_category,
+    )
+    orchestrator.generator = ClawEvalGenerator(
+        model_name=config.model,
+        skill_template=args.skill_template,
+        llm_client=llm_client,
+        duplication_similarity_threshold=config.duplication_similarity_threshold,
+    )
+    print('[Setup] Injected Claw-Eval benchmark constraints + ClawEvalGenerator')
 
     def execute_tasks_with_current_skills(tasks, use_cache=False, **kwargs):
         current_bank = {s.id: s for s in orchestrator.skill_bank.list_skills()}
-        injected = configure_pinchbench_skill_injection(executor, policy_adapter, tasks, current_bank, tasks_dir=executor.tasks_dir, template=args.skill_template, model=config.model)
+        injected = configure_pinchbench_skill_injection(
+            executor,
+            policy_adapter,
+            tasks,
+            current_bank,
+            tasks_dir=executor.tasks_dir,
+            template=args.skill_template,
+            model=config.model,
+            global_prior=orchestrator.global_prior,
+            embedding_api_key=config.embedding_api_key,
+            embedding_base_url=config.embedding_base_url,
+            embedding_model=config.embedding_model,
+        )
         if injected:
-            print(f'    [Skills] Configured for {injected} task(s)')
+            print(f'    [Skills] Configured for {injected} task(s) (with step-by-step tracking)')
         return executor.execute_tasks(tasks, model=config.model)
+
     orchestrator._execute_tasks = execute_tasks_with_current_skills
     print('\n[Run] Starting SkillAdaptor...')
-    result = orchestrator.run(training_tasks=training_tasks, validation_tasks=validation_tasks, eval_func=eval_skill_bank, initial_skill_bank=None)
+    result = orchestrator.run(
+        training_tasks=training_tasks,
+        validation_tasks=validation_tasks,
+        eval_func=eval_skill_bank,
+        initial_skill_bank=initial_bank,
+    )
     print('\n[Save] Saving results...')
     orchestrator.save_skill_bank()
     if test_tasks:
         final_bank = {s.id: s for s in orchestrator.skill_bank.list_skills()}
-        injected = configure_pinchbench_skill_injection(executor, policy_adapter, test_tasks, final_bank, tasks_dir=executor.tasks_dir, template=args.skill_template, model=config.model)
+        injected = configure_pinchbench_skill_injection(
+            executor,
+            policy_adapter,
+            test_tasks,
+            final_bank,
+            tasks_dir=executor.tasks_dir,
+            template=args.skill_template,
+            model=config.model,
+            global_prior=orchestrator.global_prior,
+            embedding_api_key=config.embedding_api_key,
+            embedding_base_url=config.embedding_base_url,
+            embedding_model=config.embedding_model,
+        )
         print(f'[Held-out Test] Injected skills for {injected} tasks')
         trajectories = executor.execute_tasks(test_tasks, model=config.model)
         if trajectories:
             success_count = sum((1 for t in trajectories if t.success))
             total_score = sum((t.total_reward for t in trajectories))
-            result['held_out_test'] = {'success_rate': success_count / len(trajectories), 'avg_score': total_score / len(trajectories), 'sample_size': len(trajectories), 'task_results': {t.task_id: {'success': t.success, 'score': t.total_reward} for t in trajectories}}
+            result['held_out_test'] = {
+                'success_rate': success_count / len(trajectories),
+                'avg_score': total_score / len(trajectories),
+                'sample_size': len(trajectories),
+                'task_results': {t.task_id: {'success': t.success, 'score': t.total_reward} for t in trajectories},
+            }
         else:
             result['held_out_test'] = {'success_rate': 0.0, 'avg_score': 0.0, 'sample_size': 0}
-        print(f"[Test] Held-out test metrics: success_rate={result['held_out_test'].get('success_rate', 0.0):.3f}, avg_score={result['held_out_test'].get('avg_score', 0.0):.3f}, sample_size={result['held_out_test'].get('sample_size', 0)}")
+        print(
+            f"[Test] Held-out test metrics: success_rate={result['held_out_test'].get('success_rate', 0.0):.3f}, "
+            f"avg_score={result['held_out_test'].get('avg_score', 0.0):.3f}, "
+            f"sample_size={result['held_out_test'].get('sample_size', 0)}"
+        )
     else:
         result['held_out_test'] = {'success_rate': 0.0, 'avg_score': 0.0, 'sample_size': 0}
     return result
@@ -332,6 +458,8 @@ def run_workspace(args, config):
         similarity_threshold=config.skill_match_threshold,
         cross_task_threshold=config.cross_task_match_threshold,
         retrieval_index=retrieval_index,
+        llm_client=llm_client,
+        llm_model=config.model,
     )
 
     def _task_category(task_id: str) -> str:
@@ -628,7 +756,7 @@ def run_pinchbench(args, config):
         for tid in sorted(retrieval_index.labels.keys())[:12]:
             lab = retrieval_index.labels[tid]
             print(f'  {tid}: category={lab.category} tags={lab.tags}')
-    policy_adapter = PinchBenchPolicyAdapter(artifact_dir, api_key=config.embedding_api_key, base_url=config.embedding_base_url, embedding_model=config.embedding_model, similarity_threshold=config.skill_match_threshold, cross_task_threshold=config.cross_task_match_threshold, retrieval_index=retrieval_index)
+    policy_adapter = PinchBenchPolicyAdapter(artifact_dir, api_key=config.embedding_api_key, base_url=config.embedding_base_url, embedding_model=config.embedding_model, similarity_threshold=config.skill_match_threshold, cross_task_threshold=config.cross_task_match_threshold, retrieval_index=retrieval_index, llm_client=llm_client, llm_model=config.model)
     initial_bank = None
     if args.skills:
         print(f'[Setup] Loading skills from {args.skills}')

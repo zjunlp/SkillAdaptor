@@ -19,6 +19,7 @@ from core.api_env import (
     chat_model_envs,
     chat_url_envs,
     embedding_key_envs,
+    embedding_model_envs,
     embedding_url_envs,
     first_env,
 )
@@ -94,7 +95,10 @@ def _api_pair(
 
 def _embedding_credentials() -> tuple[str, str, str]:
     emb_key, emb_base = _api_pair(embedding_key_envs(), embedding_url_envs())
-    emb_model = _first_non_empty(os.environ.get(EMBEDDING_MODEL_VAR), PRIMARY_EMBEDDING_MODEL)
+    emb_model = _first_non_empty(
+        *(os.environ.get(name) for name in embedding_model_envs()),
+        PRIMARY_EMBEDDING_MODEL,
+    )
     return emb_key, emb_base, emb_model
 
 

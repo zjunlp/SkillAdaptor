@@ -13,13 +13,13 @@ EMBEDDING_API_KEY_VAR = 'SkillAdaptor_EMBEDDING_API_KEY'
 EMBEDDING_BASE_URL_VAR = 'SkillAdaptor_EMBEDDING_BASE_URL'
 EMBEDDING_MODEL_VAR = 'SkillAdaptor_EMBEDDING_MODEL'
 
-# Read-only legacy aliases (older .env files); not written by apply_* helpers.
-_LEGACY_CHAT_KEY_VARS = ('OPENAI_API_KEY',)
-_LEGACY_CHAT_URL_VARS = ('OPENAI_API_BASE_URL', 'OPENAI_BASE_URL')
-_LEGACY_CHAT_MODEL_VARS = ('OPENAI_MODEL',)
-_LEGACY_EMB_KEY_VARS: tuple[str, ...] = ()
-_LEGACY_EMB_URL_VARS: tuple[str, ...] = ()
-_LEGACY_EMB_MODEL_VARS: tuple[str, ...] = ()
+# Read-only legacy aliases (older .env / pre-rename SkillEvolve_*); not written by apply_* helpers.
+_LEGACY_CHAT_KEY_VARS = ('OPENAI_API_KEY', 'SkillEvolve_API_KEY')
+_LEGACY_CHAT_URL_VARS = ('OPENAI_API_BASE_URL', 'OPENAI_BASE_URL', 'SkillEvolve_BASE_URL')
+_LEGACY_CHAT_MODEL_VARS = ('OPENAI_MODEL', 'SkillEvolve_MODEL')
+_LEGACY_EMB_KEY_VARS: tuple[str, ...] = ('SkillEvolve_EMBEDDING_API_KEY',)
+_LEGACY_EMB_URL_VARS: tuple[str, ...] = ('SkillEvolve_EMBEDDING_BASE_URL',)
+_LEGACY_EMB_MODEL_VARS: tuple[str, ...] = ('SkillEvolve_EMBEDDING_MODEL',)
 
 
 def first_env(*names: str) -> str:

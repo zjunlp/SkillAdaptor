@@ -181,21 +181,29 @@ class SkillAdaptorOrchestrator:
 
     def _finalize_localized_fault(self, trajectory: Trajectory, fault: LocalizedFault) -> LocalizedFault:
         skill_dict = {s.id: s for s in self.skill_bank.list_skills()}
-        coerced = coerce_cold_start_fault(fault, trajectory)
-        if coerced.fault_type != fault.fault_type:
-            print(
-                f'      Fault coerce: {fault.fault_type.value} -> {coerced.fault_type.value} '
-                '(no skill coverage for deliverable gap)'
-            )
-        fault = coerced
-        before_repair = fault.fault_type
-        fault = coerce_degraded_bank_fault(fault, trajectory, skill_dict)
-        if fault.fault_type != before_repair:
-            suspects = fault.skills_at_fault or ['?']
-            print(
-                f'      Fault coerce: {before_repair.value} -> {fault.fault_type.value} '
-                f'(degraded bank → repair path, suspect={suspects[0]})'
-            )
+        # Paper-strict default: keep Localizer LLM fault_type. Optional rule coerces
+        # (cold-start / degraded-bank) only when SKILLADAPTOR_ALLOW_FAULT_COERCE=1.
+        allow_coerce = os.environ.get('SKILLADAPTOR_ALLOW_FAULT_COERCE', '').strip().lower() in (
+            '1', 'true', 'yes',
+        )
+        if allow_coerce:
+            coerced = coerce_cold_start_fault(fault, trajectory)
+            if coerced.fault_type != fault.fault_type:
+                print(
+                    f'      Fault coerce: {fault.fault_type.value} -> {coerced.fault_type.value} '
+                    '(no skill coverage for deliverable gap)'
+                )
+            fault = coerced
+            before_repair = fault.fault_type
+            fault = coerce_degraded_bank_fault(fault, trajectory, skill_dict)
+            if fault.fault_type != before_repair:
+                suspects = fault.skills_at_fault or ['?']
+                print(
+                    f'      Fault coerce: {before_repair.value} -> {fault.fault_type.value} '
+                    f'(degraded bank → repair path, suspect={suspects[0]})'
+                )
+        else:
+            print('      Fault coerce skipped (SKILLADAPTOR_ALLOW_FAULT_COERCE unset; LLM fault_type kept)')
         return fault
 
     FAULT_CHAIN_MAX_ATTEMPTS = 3
@@ -227,29 +235,97 @@ class SkillAdaptorOrchestrator:
         skill_dict = {s.id: s for s in self.skill_bank.list_skills()}
         reject_h = self._get_rejection_summaries_for_prompt()
         attributions = self.linker.attribute(fault, skill_dict, self.llm_client, skill_matcher=self._skill_matcher)
-        if attributions:
-            high_conf = self.linker.attributions_for_repair(
-                fault, attributions, skill_dict, self.config.attribution_weight_threshold,
+        high_conf = self.linker.attributions_for_repair(
+            fault, attributions, skill_dict, self.config.attribution_weight_threshold,
+        ) if attributions else []
+
+        def _try_revise(attr: SkillAttribution, tag: str) -> None:
+            skill = skill_dict.get(attr.skill_id)
+            if not skill:
+                return
+            print(
+                f'      [Repair/{tag}] Reviser ← {attr.skill_id} v{skill.version} '
+                f'(weight={attr.weight:.2f} reason={attr.reason[:80]!r})'
             )
-            for attr in high_conf:
-                skill = skill_dict.get(attr.skill_id)
-                if skill:
-                    print(
-                        f'      [Repair] Reviser ← {attr.skill_id} v{skill.version} '
-                        f'(weight={attr.weight:.2f})'
-                    )
-                    revised = self.reviser.revise(
-                        skill, fault, attr, rejection_summaries=reject_h, trajectory=trajectory,
-                    )
-                    if revised and (not self._is_similar_to_rejected(revised)):
-                        revised_skills.append(revised)
-        else:
-            print(f'      [Generate] No attribution (fault={fault.fault_type.value}) — new skill')
+            revised = self.reviser.revise(
+                skill, fault, attr, rejection_summaries=reject_h, trajectory=trajectory,
+            )
+            if revised and (not self._is_similar_to_rejected(revised)):
+                revised_skills.append(revised)
+
+        def _try_generate(why: str) -> None:
+            print(
+                f'      [Generate] LLM Link empty/low-weight '
+                f'(fault={why}, n_attr={len(attributions)}) — new skill'
+            )
             new_skill = self.generator.generate(trajectory, fault, skill_dict, rejection_summaries=reject_h)
             if new_skill and (not self._is_similar_to_rejected(new_skill)):
                 new_skills.append(new_skill)
                 self._on_skill_generated(new_skill)
+
+        # Paper: Link → REVISE high-weight suspects; else GENERATE.
+        # Do not invent Linker weights. skill_wrong without high_conf still
+        # attempts repair/generate (skip was dropping real failures).
+        if high_conf:
+            for attr in high_conf:
+                _try_revise(attr, 'high_conf')
+        elif fault.fault_type == FaultType.SKILL_WRONG and attributions:
+            # Linker ranked suspects but all below threshold — still revise top-1
+            # (real LLM weights, not fabricated ids).
+            top = max(attributions, key=lambda a: a.weight)
+            _try_revise(
+                SkillAttribution(
+                    skill_id=top.skill_id,
+                    weight=top.weight,
+                    reason=f'{top.reason} [skill_wrong: below threshold, revise top Linker suspect]',
+                ),
+                'skill_wrong_top_attr',
+            )
+        elif fault.fault_type == FaultType.SKILL_WRONG and fault.skills_at_fault:
+            # Step-level S_t when Linker returned empty — revise injected skills at t*.
+            for sid in fault.skills_at_fault:
+                if sid not in skill_dict:
+                    continue
+                _try_revise(
+                    SkillAttribution(
+                        skill_id=sid,
+                        weight=0.0,
+                        reason='skills_at_fault from step S_t; Linker empty — revise injected skill',
+                    ),
+                    'skill_wrong_S_t',
+                )
+            if not revised_skills:
+                _try_generate('skill_wrong+S_t_miss_in_bank')
+        elif (
+            fault.fault_type == FaultType.SKILL_MISSING
+            or not skill_dict
+            or fault.fault_type == FaultType.SKILL_WRONG
+            or (
+                fault.fault_type == FaultType.REASONING_WRONG
+                and self._evolve_on_reasoning_wrong()
+            )
+        ):
+            why = fault.fault_type.value
+            if fault.fault_type == FaultType.SKILL_WRONG:
+                why = 'skill_wrong+no_suspect_generate'
+            elif not skill_dict and fault.fault_type != FaultType.SKILL_MISSING:
+                why = f'{fault.fault_type.value}+cold_start_empty_bank'
+            _try_generate(why)
+        else:
+            print(
+                f'      [Skip] no revise/generate path '
+                f'(fault={fault.fault_type.value}, n_attr={len(attributions)}, bank={len(skill_dict)})'
+            )
         return (revised_skills, new_skills)
+
+    def _evolve_on_reasoning_wrong(self) -> bool:
+        """If True, REASONING_WRONG still attempts generate/revise (default).
+
+        Set SKILLADAPTOR_SKIP_REASONING_WRONG_EVOLVE=1 to restore paper-strict
+        skip (record only, no skill edit).
+        """
+        raw = os.environ.get('SKILLADAPTOR_SKIP_REASONING_WRONG_EVOLVE', '0').strip().lower()
+        return raw not in ('1', 'true', 'yes', 'on')
 
     def _process_failures_with_chain_validation(self, failures: List[Trajectory], validation_tasks: List[str], eval_func: Callable[[Dict[str, Skill]], Dict[str, Any]]) -> Tuple[List[Skill], List[Skill], List[Skill]]:
         accepted_all: List[Skill] = []
@@ -268,12 +344,18 @@ class SkillAdaptorOrchestrator:
         for i, (trajectory, fault) in enumerate(unique_faults):
             print(f'    Processing fault {i + 1}/{len(unique_faults)}...')
             print(f'      Primary fault at step {fault.step_index + 1}: {fault.fault_type.value}')
-            if fault.improvement_principle and fault.fault_type != FaultType.REASONING_WRONG:
-                self._iteration_principles.append(fault.improvement_principle.strip())
+            if fault.improvement_principle:
+                # Include reasoning_wrong principles when we evolve on them (soft patch).
+                if fault.fault_type != FaultType.REASONING_WRONG or self._evolve_on_reasoning_wrong():
+                    self._iteration_principles.append(fault.improvement_principle.strip())
             if fault.fault_type == FaultType.REASONING_WRONG:
-                print('      -> REASONING_WRONG: Recording only, skipping skill modification')
                 self._record_reasoning_fault(fault)
-                continue
+                if not self._evolve_on_reasoning_wrong():
+                    print('      -> REASONING_WRONG: Recording only, skipping skill modification '
+                          '(SKILLADAPTOR_SKIP_REASONING_WRONG_EVOLVE=1)')
+                    continue
+                print('      -> REASONING_WRONG: still attempt generate/revise patch '
+                      '(set SKILLADAPTOR_SKIP_REASONING_WRONG_EVOLVE=1 to skip)')
             chain_raw = fault.fault_chain or [fault.step_index + 1]
             chain = list(dict.fromkeys(chain_raw))[:self.FAULT_CHAIN_MAX_ATTEMPTS]
             if fault.fault_chain:

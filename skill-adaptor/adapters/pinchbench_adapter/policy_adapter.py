@@ -22,13 +22,18 @@ class BenchmarkArgs:
 
 class PinchBenchPolicyAdapter:
 
-    def __init__(self, artifact_dir: Path | str, embedding_client=None, api_key: str='', base_url: str='', embedding_model: str='', similarity_threshold: float=0.5, cross_task_threshold: float=0.55, retrieval_index: Optional['RetrievalIndex']=None):
+    def __init__(self, artifact_dir: Path | str, embedding_client=None, api_key: str='', base_url: str='', embedding_model: str='', similarity_threshold: float=0.5, cross_task_threshold: float=0.55, retrieval_index: Optional['RetrievalIndex']=None, llm_client=None, llm_model: str='', use_llm_rerank: Optional[bool]=None):
         self.artifact_dir = Path(artifact_dir)
         self.artifact_dir.mkdir(parents=True, exist_ok=True)
         self.similarity_threshold = similarity_threshold
         self.cross_task_threshold = cross_task_threshold
         self.retrieval_index = retrieval_index
         self.matcher = create_matcher(similarity_threshold=similarity_threshold, embedding_client=embedding_client, api_key=api_key, base_url=base_url, model_name=embedding_model or None)
+        self.llm_client = llm_client
+        self.llm_model = llm_model or ''
+        from core.skill_rerank import llm_rerank_enabled
+
+        self.use_llm_rerank = llm_rerank_enabled() if use_llm_rerank is None else bool(use_llm_rerank)
 
     def _retrieval_gate(self, tasks_dir: Optional[Path]) -> SkillRetrievalGate:
         if self.retrieval_index is not None:
@@ -45,8 +50,9 @@ class PinchBenchPolicyAdapter:
     def _select_skills_for_task(self, task_id: str, skill_bank: Dict[str, Skill], tasks_dir: Optional[Path], top_k: int) -> List[tuple[Skill, float, str]]:
         gate = self._retrieval_gate(tasks_dir)
         task_desc = self.matcher.build_task_description(task_id, tasks_dir=tasks_dir)
+        # Paper C.1: cosine filter (via gate / threshold) → top-10 → LLM rerank → inject top_k
         ranked = self.matcher.rank_skills_for_task(skill_bank, task_desc, top_k=10)
-        selected: List[tuple[Skill, float, str]] = []
+        gated: List[tuple[Skill, float, str]] = []
         seen: set[str] = set()
         for skill, score in ranked:
             if skill.id in seen:
@@ -54,11 +60,38 @@ class PinchBenchPolicyAdapter:
             decision = gate.evaluate(task_id, skill, score)
             if not decision.inject:
                 continue
-            selected.append((skill, decision.score, decision.reason))
+            gated.append((skill, decision.score, decision.reason))
             seen.add(skill.id)
-            if len(selected) >= top_k:
+            if len(gated) >= 10:
                 break
-        return selected[:top_k]
+        if not gated:
+            return []
+        if self.use_llm_rerank:
+            if self.llm_client is None or not self.llm_model:
+                raise RuntimeError(
+                    'LLM rerank enabled (paper S_q) but llm_client/llm_model missing. '
+                    'Pass llm_client into PinchBenchPolicyAdapter, or set SkillAdaptor_LLM_RERANK=0 for embed-only A/B.'
+                )
+            from core.skill_rerank import rerank_skills_with_llm
+
+            reranked = rerank_skills_with_llm(
+                llm_client=self.llm_client,
+                model_name=self.llm_model,
+                task_description=task_desc,
+                candidates=[(s, sc) for s, sc, _ in gated],
+                top_k=top_k,
+            )
+            reason_by_id = {s.id: reason for s, _sc, reason in gated}
+            selected = [
+                (s, sc, f'{reason_by_id.get(s.id, "embed")}+llm_rerank')
+                for s, sc in reranked
+            ]
+            print(
+                f'    [Rerank] {task_id}: embed_top={[s.id for s, _, _ in gated[:top_k]]} '
+                f'→ llm_top={[s.id for s, _, _ in selected]}'
+            )
+            return selected
+        return gated[:top_k]
 
     def _normalize_text(self, text: str) -> str:
         text = text.lower()
@@ -125,6 +158,14 @@ class PinchBenchPolicyAdapter:
             task_file = tasks_dir / f'{task_id}.md'
             if task_file.exists():
                 return task_file.read_text(encoding='utf-8')
+            try:
+                from adapters.claw_eval_adapter.task_io import task_yaml_as_markdown
+
+                md = task_yaml_as_markdown(tasks_dir, task_id)
+                if md.strip():
+                    return md
+            except Exception:
+                pass
         return ''
 
     def build_combined_skill_text(self, skills: List[Skill], template: str='enhanced', model: Optional[str]=None, global_prior: str='', task_id: Optional[str]=None, tasks_dir: Optional[Path]=None) -> str:
@@ -171,11 +212,18 @@ class PinchBenchPolicyAdapter:
             combined += 'Apply the global prior above when executing this task.\n'
         elif banner:
             combined += 'Follow the mandatory deliverable constraints above; do not invent alternate scenarios.\n'
+        # Frontmatter description follows active benchmark env (Claw-Eval vs PinchBench).
+        import os
+        bench = (os.environ.get('SkillAdaptor_BENCHMARK_ENV') or '').strip().lower()
+        if bench in ('claw-eval', 'claw_eval'):
+            fm_desc = 'Claw-Eval evolved skill — container-safe, verifier-aligned procedures.'
+        else:
+            fm_desc = 'PinchBench evolved skill — follow STOP / IMMEDIATE ACTION blocks first.'
         if combined and not combined.lstrip().startswith('---'):
             combined = (
                 '---\n'
                 'name: skill-adaptor-evolved\n'
-                'description: PinchBench evolved skill — follow STOP / IMMEDIATE ACTION blocks first.\n'
+                f'description: {fm_desc}\n'
                 '---\n\n'
                 + combined
             )

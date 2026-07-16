@@ -126,6 +126,24 @@ class SemanticSkillMatcher:
                 if domain:
                     description_parts.append(f'Domain: {domain}')
                 return ' '.join(description_parts)
+            # Claw-Eval: tasks/<id>/task.yaml with nested prompt.text
+            yaml_prompt = ''
+            try:
+                from adapters.claw_eval_adapter.task_io import read_claw_eval_category, read_claw_eval_prompt
+
+                yaml_prompt = read_claw_eval_prompt(tasks_dir, task_id)
+                yaml_cat = read_claw_eval_category(tasks_dir, task_id)
+            except Exception:
+                yaml_prompt = ''
+                yaml_cat = ''
+            if yaml_prompt:
+                task_type = yaml_cat or self._infer_task_type(task_id)
+                description_parts.append(f'Task Type: {task_type}')
+                description_parts.append(f'Task Goal: {yaml_prompt[:400]}')
+                domain = self._infer_domain(task_id, yaml_prompt[:200])
+                if domain:
+                    description_parts.append(f'Domain: {domain}')
+                return ' '.join(description_parts)
         parts = task_id.replace('task_', '').split('_')[1:]
         task_type = self._infer_task_type(task_id)
         return f"Task Type: {task_type}. Task Goal: {' '.join(parts)}"
