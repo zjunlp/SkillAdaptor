@@ -51,7 +51,10 @@ from core.step_trace_gate import require_actionable_trace
 from core.types import Skill, Step, Trajectory
 from runtime.execution_binding import apply_prompt_prefix
 from runtime.harness import AgentHarness, get_harness
-from runtime.harness.openclaw import ensure_openclaw_skill_markdown
+from runtime.skill_inject import (
+    ensure_skill_markdown,
+    inline_skill_for_prompt,
+)
 
 from .action_extractor import extract_action_content
 from .official_config import (
@@ -175,7 +178,7 @@ class ClawEvalExecutor:
 
     def _normalize_skill_markdown(self, skill_text: str) -> str:
         """Canonical SKILL.md body (YAML frontmatter + markdown) for inject + config."""
-        return ensure_openclaw_skill_markdown(skill_text, skill_id=self.OPENCLAW_EVOLVED_SKILL_DIR)
+        return ensure_skill_markdown(skill_text, skill_id=self.OPENCLAW_EVOLVED_SKILL_DIR)
 
     def _primary_skill_path(self) -> Path:
         """Path referenced by claw-eval prompt.skills (cwd = claw_eval_path)."""
@@ -290,13 +293,7 @@ class ClawEvalExecutor:
         if skill_text:
             # Primary visibility for claw-eval agent loop: inline body (sandbox may
             # not mount host skills/). Catalog entry still listed under prompt.skills.
-            body = skill_text[:4500]
-            prefix_parts.append(
-                '# SkillAdaptor evolved skills (INLINED — follow these procedures)\n'
-                'The skill body below is authoritative for this task. Prefer it over '
-                'ad-hoc guesses. You do not need a sandbox read of SKILL.md to apply it.\n\n'
-                f'{body}\n'
-            )
+            prefix_parts.append(inline_skill_for_prompt(skill_text))
         payload, warnings = build_run_config_payload(
             claw_eval_path=self.claw_eval_path,
             agent_api_key=self.api_key,

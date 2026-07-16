@@ -15,6 +15,7 @@ from core.types import Step, Trajectory
 from runtime.execution_binding import read_task_markdown
 from runtime.harness import AgentHarness, get_harness
 from runtime.harness_runners import HarnessRunner, OpenClawHarnessRunner, get_harness_runner
+from runtime.skill_inject import ensure_skill_markdown, inline_skill_for_prompt
 from runtime.workspace_grade import extract_prompt_section, grade_workspace_task
 from runtime.workspace_trace import resolve_workspace_trajectory_steps
 
@@ -73,9 +74,24 @@ class WorkspaceExecutor:
         self.harness.purge_all_injections(benchmark_root=self.workspace)
 
     def _inject_skills(self, task_id: str) -> None:
-        skill_text = self._task_skills.get(task_id, '')
-        if skill_text:
-            self.harness.inject_skill_text(skill_text, benchmark_root=self.workspace, task_id=task_id)
+        raw = self._task_skills.get(task_id, '')
+        if raw and str(raw).strip():
+            skill_text = ensure_skill_markdown(str(raw))
+            self._task_skills[task_id] = skill_text
+            try:
+                self.harness.inject_skill_text(
+                    skill_text, benchmark_root=self.workspace, task_id=task_id
+                )
+            except Exception as exc:
+                raise TaskExecutionError(
+                    f'Workspace skill injection failed for {task_id}: {exc}'
+                ) from exc
+            primary = self.workspace / 'skills' / 'skill-adaptor-evolved' / 'SKILL.md'
+            if not primary.exists() or primary.stat().st_size < 20:
+                raise TaskExecutionError(
+                    f'Workspace skill inject did not land at {primary} for {task_id}'
+                )
+            print(f'[Workspace] Skill inject ok chars={len(skill_text)} path={primary}')
         else:
             self.harness.clear_skill_injection(benchmark_root=self.workspace, task_id=task_id)
 
@@ -89,6 +105,11 @@ class WorkspaceExecutor:
         prefix = (self._task_prompt_prefixes.get(task_id) or '').strip()
         if prefix:
             prompt = f'{prefix}\n\n{prompt}'
+        # Belt-and-suspenders: inline evolved skill into the user message so
+        # OpenClaw/Claude/Codex/Hermes always see procedures (not only disk skills/).
+        skill_inline = inline_skill_for_prompt(self._task_skills.get(task_id, ''))
+        if skill_inline:
+            prompt = f'{skill_inline}\n\n{prompt}'
         return task_md, prompt
 
     def _resolve_agent_id(self, model: str) -> str:
@@ -100,9 +121,10 @@ class WorkspaceExecutor:
 
     def execute_task(self, task_id: str, model: Optional[str] = None, timeout: int = 1200) -> Trajectory:
         effective_model = model or self.model
-        task_md, prompt = self._read_task(task_id)
-        self._inject_skills(task_id)
+        # Bind OpenClaw agent workspace first so harness inject lands in the live skills/ dir.
         agent_id = self._resolve_agent_id(effective_model)
+        self._inject_skills(task_id)
+        task_md, prompt = self._read_task(task_id)
         run_started = time.time()
         if os.environ.get('SKILLADAPTOR_SKIP_LIVE_RUN', '').strip().lower() not in ('1', 'true', 'yes'):
             run_started = self.runner.run_task(

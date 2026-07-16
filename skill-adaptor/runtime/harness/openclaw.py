@@ -1,28 +1,21 @@
 """OpenClaw agent harness — gateway, workspace skills, PinchBench .skill mirror."""
 
 from __future__ import annotations
+
 from pathlib import Path
 from typing import Optional
+
 from core.openclaw_agent_setup import prepare_openclaw_for_model
 from core.openclaw_hygiene import clear_bootstrap_files, discover_workspace_root
-from runtime.skill_export import build_frontmatter
+from runtime.skill_inject import (
+    EVOLVED_SKILL_DIR,
+    ensure_skill_markdown,
+    openclaw_skill_targets,
+    write_and_verify_skill_files,
+)
 
-EVOLVED_SKILL_DIR = 'skill-adaptor-evolved'
-
-
-def ensure_openclaw_skill_markdown(skill_text: str, *, skill_id: str = EVOLVED_SKILL_DIR) -> str:
-    """OpenClaw / claw-eval SKILL.md needs YAML frontmatter (name + description)."""
-    if not skill_text or not skill_text.strip():
-        return ''
-    if skill_text.lstrip().startswith('---'):
-        return skill_text if skill_text.endswith('\n') else skill_text + '\n'
-    fm = build_frontmatter(
-        skill_id,
-        'SkillAdaptor evolved skill — follow procedures when relevant.',
-        'Apply when the task matches the failure pattern this skill was adapted for.',
-    )
-    body = skill_text.strip()
-    return fm + body + '\n'
+# Re-export for callers that import from this module.
+ensure_openclaw_skill_markdown = ensure_skill_markdown
 
 
 class OpenClawHarness:
@@ -45,33 +38,18 @@ class OpenClawHarness:
     def _openclaw_skill_path(self) -> Path:
         return Path.home() / '.openclaw' / 'workspace' / 'skills' / EVOLVED_SKILL_DIR / 'SKILL.md'
 
-    def inject_skill_text(self, skill_text: str, *, benchmark_root: Path, task_id: Optional[str]=None) -> None:
+    def inject_skill_text(self, skill_text: str, *, benchmark_root: Path, task_id: Optional[str] = None) -> None:
         if not skill_text:
             return
-        md = ensure_openclaw_skill_markdown(skill_text)
-        repo_skill_dir = benchmark_root / '.skill'
-        repo_skill_dir.mkdir(parents=True, exist_ok=True)
-        (repo_skill_dir / 'SKILL.md').write_text(md, encoding='utf-8')
-        oc_dir = self._openclaw_skill_path().parent
-        oc_dir.mkdir(parents=True, exist_ok=True)
-        self._openclaw_skill_path().write_text(md, encoding='utf-8')
-        # Fail closed: do not pretend inject succeeded if files are missing/empty.
-        for path in (repo_skill_dir / 'SKILL.md', self._openclaw_skill_path()):
-            if not path.exists() or path.stat().st_size < 20:
-                raise RuntimeError(f'OpenClaw skill inject wrote empty/missing file: {path}')
+        md = ensure_skill_markdown(skill_text)
+        targets = openclaw_skill_targets(Path(benchmark_root), task_id=task_id)
+        write_and_verify_skill_files(targets, md)
 
-    def clear_skill_injection(self, *, benchmark_root: Path, task_id: Optional[str]=None) -> None:
-        for skill_file in (benchmark_root / '.skill' / 'SKILL.md', self._openclaw_skill_path()):
+    def clear_skill_injection(self, *, benchmark_root: Path, task_id: Optional[str] = None) -> None:
+        for skill_file in openclaw_skill_targets(Path(benchmark_root), task_id=task_id):
             if skill_file.exists():
                 try:
                     skill_file.unlink()
-                except OSError:
-                    pass
-        if task_id:
-            legacy = benchmark_root / task_id / '.skill' / 'SKILL.md'
-            if legacy.exists():
-                try:
-                    legacy.unlink()
                 except OSError:
                     pass
 

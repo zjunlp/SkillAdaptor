@@ -241,7 +241,7 @@ def run_claw_eval(args, config):
     # Claw-Eval adoption thresholds (lower initial deltas); keep all other base config fields.
     config = ClawEvalConfig.from_base(config)
     llm_client = build_openai_client(config)
-    harness = get_harness(getattr(config, 'agent_harness', None), project_root=getattr(config, 'program_workspace', None))
+    harness = get_harness(getattr(config, 'agent_harness', None), project_root=Path(claw_eval_path))
     executor = ClawEvalExecutor(
         claw_eval_path=claw_eval_path,
         python_cmd=os.environ.get('CLAW_EVAL_PYTHON') or os.environ.get('PINCHBENCH_PYTHON'),
@@ -411,6 +411,7 @@ def run_workspace(args, config):
     print('\n' + '=' * 60)
     print('SkillAdaptor - Workspace Plugin Environment')
     print('=' * 60)
+    os.environ['SkillAdaptor_BENCHMARK_ENV'] = 'workspace'
     workspace = getattr(config, 'program_workspace', None)
     if not workspace:
         raise ValueError('Workspace path missing on config.program_workspace')
@@ -591,6 +592,7 @@ def run_webshop(args, config):
     print('\n' + '=' * 60)
     print('SkillAdaptor - WebShop Environment')
     print('=' * 60)
+    os.environ['SkillAdaptor_BENCHMARK_ENV'] = 'webshop'
     print('\n[Setup] Initializing WebShop environment...')
     webshop_path = os.environ.get('WEBSHOP_PATH')
     if webshop_path and (not Path(webshop_path).exists()):
@@ -685,6 +687,7 @@ def run_pinchbench(args, config):
     print('\n' + '=' * 60)
     print('SkillAdaptor - PinchBench Environment')
     print('=' * 60)
+    os.environ['SkillAdaptor_BENCHMARK_ENV'] = 'pinchbench'
     ok, probe_out = ensure_gateway_running()
     if not ok:
         raise RuntimeError(f'OpenClaw Gateway unreachable. Start it before PinchBench runs.\nLast probe:\n{probe_out}')
@@ -700,7 +703,7 @@ def run_pinchbench(args, config):
     results_dir = os.environ.get('PINCHBENCH_RESULTS_DIR', 'results')
     artifact_dir = config.artifact_dir
     llm_client = build_openai_client(config)
-    harness = get_harness(getattr(config, 'agent_harness', None), project_root=getattr(config, 'program_workspace', None))
+    harness = get_harness(getattr(config, 'agent_harness', None), project_root=Path(pinchbench_path))
     executor = PinchBenchExecutor(pinchbench_path=pinchbench_path, python_cmd=os.environ.get('PINCHBENCH_PYTHON'), tasks_dir=tasks_dir, results_dir=results_dir, artifact_dir=artifact_dir, api_key=config.api_key, base_url=config.base_url, model=config.model, llm_client=llm_client, harness=harness)
     all_tasks = executor.list_tasks()
     if not all_tasks:

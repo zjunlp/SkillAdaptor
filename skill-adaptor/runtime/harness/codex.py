@@ -5,30 +5,22 @@ from __future__ import annotations
 import os
 import shutil
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
-from runtime.skill_export import build_frontmatter, sync_workspace_skills_to_codex
+from runtime.skill_export import sync_workspace_skills_to_codex
+from runtime.skill_inject import (
+    EVOLVED_SKILL_DIR,
+    common_benchmark_skill_paths,
+    ensure_skill_markdown,
+    write_and_verify_skill_files,
+)
 
-EVOLVED_SKILL_DIR = 'skill-adaptor-evolved'
+# Back-compat alias used by older imports / tests.
+ensure_codex_skill_markdown = ensure_skill_markdown
 
 
 def _codex_home() -> Path:
     return Path(os.environ.get('CODEX_HOME', Path.home() / '.codex'))
-
-
-def ensure_codex_skill_markdown(skill_text: str, *, skill_id: str = EVOLVED_SKILL_DIR) -> str:
-    """Codex requires YAML frontmatter (name + description) on every SKILL.md."""
-    if skill_text.lstrip().startswith('---'):
-        return skill_text
-    fm = build_frontmatter(
-        skill_id,
-        'Evolved agent skill from SkillAdaptor',
-        'Apply when the task matches the failure pattern this skill was adapted for.',
-    )
-    body = skill_text.strip()
-    if body:
-        return fm + body + '\n'
-    return fm + f'# {skill_id}\n\nEvolved by SkillAdaptor.\n'
 
 
 class CodexHarness:
@@ -40,11 +32,27 @@ class CodexHarness:
     def _workspace_skills_dir(self) -> Path:
         return self.project_root / 'skills'
 
-    def _codex_evolved_path(self) -> Path:
-        return _codex_home() / 'skills' / EVOLVED_SKILL_DIR / 'SKILL.md'
-
-    def _agents_evolved_path(self) -> Path:
-        return self.project_root / '.agents' / 'skills' / EVOLVED_SKILL_DIR / 'SKILL.md'
+    def _inject_targets(self, benchmark_root: Path, task_id: Optional[str]) -> List[Path]:
+        root = Path(benchmark_root)
+        proj = self.project_root
+        targets = common_benchmark_skill_paths(root, task_id=task_id)
+        targets.extend(
+            [
+                _codex_home() / 'skills' / EVOLVED_SKILL_DIR / 'SKILL.md',
+                root / '.agents' / 'skills' / EVOLVED_SKILL_DIR / 'SKILL.md',
+                proj / '.agents' / 'skills' / EVOLVED_SKILL_DIR / 'SKILL.md',
+                proj / 'skills' / EVOLVED_SKILL_DIR / 'SKILL.md',
+            ]
+        )
+        seen = set()
+        out: List[Path] = []
+        for p in targets:
+            key = str(p)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(p)
+        return out
 
     def prepare_runtime(self, *, model: str, api_key: str | None = None, base_url: str | None = None) -> None:
         (_codex_home() / 'skills').mkdir(parents=True, exist_ok=True)
@@ -54,21 +62,15 @@ class CodexHarness:
     def inject_skill_text(self, skill_text: str, *, benchmark_root: Path, task_id: Optional[str] = None) -> None:
         if not skill_text:
             return
-        md = ensure_codex_skill_markdown(skill_text)
-        repo_skill_dir = benchmark_root / '.skill'
-        repo_skill_dir.mkdir(parents=True, exist_ok=True)
-        (repo_skill_dir / 'SKILL.md').write_text(md, encoding='utf-8')
-        for target in (self._codex_evolved_path(), self._agents_evolved_path()):
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(md, encoding='utf-8')
-        sync_workspace_skills_to_codex(self._workspace_skills_dir(), self.project_root)
+        md = ensure_skill_markdown(skill_text)
+        write_and_verify_skill_files(self._inject_targets(Path(benchmark_root), task_id), md)
+        effective = Path(benchmark_root)
+        sync_workspace_skills_to_codex(effective / 'skills', effective)
+        if self.project_root.resolve() != effective.resolve():
+            sync_workspace_skills_to_codex(self._workspace_skills_dir(), self.project_root)
 
     def clear_skill_injection(self, *, benchmark_root: Path, task_id: Optional[str] = None) -> None:
-        for skill_file in (
-            benchmark_root / '.skill' / 'SKILL.md',
-            self._codex_evolved_path(),
-            self._agents_evolved_path(),
-        ):
+        for skill_file in self._inject_targets(Path(benchmark_root), task_id):
             if skill_file.exists():
                 try:
                     skill_file.unlink()
@@ -83,6 +85,7 @@ class CodexHarness:
 
     def purge_all_injections(self, *, benchmark_root: Path) -> None:
         self.clear_skill_injection(benchmark_root=benchmark_root)
-        agents_evolved = self.project_root / '.agents' / 'skills' / EVOLVED_SKILL_DIR
-        if agents_evolved.exists():
-            shutil.rmtree(agents_evolved, ignore_errors=True)
+        for base in (self.project_root, Path(benchmark_root)):
+            agents_evolved = base / '.agents' / 'skills' / EVOLVED_SKILL_DIR
+            if agents_evolved.exists():
+                shutil.rmtree(agents_evolved, ignore_errors=True)

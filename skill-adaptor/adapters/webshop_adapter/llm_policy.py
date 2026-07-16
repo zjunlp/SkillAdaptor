@@ -5,6 +5,7 @@ import re
 from typing import Any, Dict, List, Optional
 from core.types import Skill
 from core.skill_matcher import SemanticSkillMatcher
+from runtime.skill_inject import format_skills_for_llm_prompt
 
 class SkillAugmentedLLMPolicy:
     LOOP_THRESHOLD = 3
@@ -83,8 +84,7 @@ class SkillAugmentedLLMPolicy:
         clickables = available_actions.get('clickables', [])
         skills_block = ''
         if skills:
-            skills_text = '\n'.join([f'- [{s.title}]: {s.description}' for s in skills])
-            skills_block = f"\n【Relevant Skills】\n{skills_text}\n\nWhen the situation matches a skill's 'when_to_apply', follow that skill's guidance.\n"
+            skills_block = '\n' + format_skills_for_llm_prompt(skills) + '\n'
         loop_warning = ''
         if loop_action:
             loop_warning = f"\n【WARNING】You have repeated '{loop_action}' {self.LOOP_THRESHOLD} times.\nThis suggests you may be stuck. Choose a DIFFERENT action.\n"

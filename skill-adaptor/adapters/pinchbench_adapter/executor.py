@@ -29,10 +29,14 @@ from .skill_tracker import create_step_tracker
 from core.step_skill_retriever import StepSkillRetriever
 from core.skill_matcher import SemanticSkillMatcher
 from core.trajectory_step_merge import load_cached_trajectory_steps, merge_trajectory_steps, steps_from_openclaw_trajectory, steps_from_pinchbench_transcript
-from runtime.execution_binding import apply_prompt_prefix
+from runtime.execution_binding import apply_prompt_prefix, PROMPT_PREFIX_ENV
 from adapters.pinchbench_adapter.score_normalize import resolve_shell_task_score
 from runtime.harness import AgentHarness, get_harness
-from runtime.harness.openclaw import EVOLVED_SKILL_DIR as OPENCLAW_EVOLVED_SKILL_DIR
+from runtime.skill_inject import (
+    EVOLVED_SKILL_DIR as OPENCLAW_EVOLVED_SKILL_DIR,
+    ensure_skill_markdown,
+    inline_skill_for_prompt,
+)
 
 class PinchBenchExecutor:
 
@@ -102,10 +106,30 @@ class PinchBenchExecutor:
     def _inject_skills_to_task(self, task_id: str) -> None:
         if task_id not in self._task_skills:
             return
-        skill_text = self._task_skills[task_id]
-        if not skill_text:
+        raw = self._task_skills[task_id]
+        if not raw or not str(raw).strip():
             return
-        self.harness.inject_skill_text(skill_text, benchmark_root=self.pinchbench_path, task_id=task_id)
+        skill_text = ensure_skill_markdown(str(raw))
+        self._task_skills[task_id] = skill_text
+        try:
+            self.harness.inject_skill_text(
+                skill_text, benchmark_root=self.pinchbench_path, task_id=task_id
+            )
+        except Exception as exc:
+            raise TaskExecutionError(
+                f'PinchBench skill injection failed for {task_id}: {exc}'
+            ) from exc
+        primary = self.pinchbench_path / 'skills' / OPENCLAW_EVOLVED_SKILL_DIR / 'SKILL.md'
+        if not primary.exists() or primary.stat().st_size < 20:
+            raise TaskExecutionError(
+                f'PinchBench skill inject did not land at {primary} for {task_id}'
+            )
+        print(f'[PinchBench] Skill inject ok chars={len(skill_text)} path={primary}')
+
+    def skill_prompt_addon(self, task_id: str) -> str:
+        """Inline skill body for agents that may miss disk discovery."""
+        text = (self._task_skills.get(task_id) or '').strip()
+        return inline_skill_for_prompt(text) if text else ''
 
     def _clear_skills_from_task(self, task_id: str) -> None:
         self.harness.clear_skill_injection(benchmark_root=self.pinchbench_path, task_id=task_id)
@@ -203,6 +227,15 @@ class PinchBenchExecutor:
             cmd.extend(['--base-url', self.base_url])
         env = self._setup_env()
         env = apply_prompt_prefix(env, task_id, self._task_prompt_prefixes)
+        # Always push full skill body into prompt prefix so OpenClaw/PinchBench
+        # agents see procedures even if disk skill discovery fails.
+        skill_inline = self.skill_prompt_addon(task_id)
+        if skill_inline:
+            existing = (env.get(PROMPT_PREFIX_ENV) or '').strip()
+            env[PROMPT_PREFIX_ENV] = (
+                f'{skill_inline}\n\n{existing}'.strip() if existing else skill_inline
+            )
+            env['SkillAdaptor_SKILL_INLINE'] = '1'
         result = subprocess.run(cmd, cwd=self.pinchbench_path, capture_output=True, text=True, timeout=timeout, env=env)
         if result.returncode != 0:
             stderr = (result.stderr or '')[:500]
