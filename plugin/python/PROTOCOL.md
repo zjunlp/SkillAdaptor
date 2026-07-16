@@ -29,10 +29,8 @@ Result JSON (`plugin_evolution_result.json`) includes:
 - `held_out_test` (from run record)
 - `run_record` path
 
-## Evolution path (paper-aligned)
+## Evolution path
 
-Bridge **must not** inline a second orchestrator. It delegates to:
+The bridge does not embed a second orchestrator. It delegates to:
 
-`run_plugin.py` → `PluginHost` → `run_pinchbench` → Validator on full `validation_tasks`.
-
-See smoke5_v02 in `docs/EXPERIMENT_LOG.md`.
+`run_plugin.py` → `PluginHost` → environment runner → Validator on `validation_tasks`.
