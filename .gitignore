@@ -200,6 +200,16 @@ benchmarks/manifests/claw_eval_local*.json
 secrets/local/
 **/secrets/local/
 
+# Protocol / paper-eval writeups — never ship (root + plugin README / SKILL.md only)
+**/PAPER_EVAL.md
+**/paper_eval.md
+**/EVAL_PROTOCOL.md
+**/REPRO_NOTES.md
+**/REPRO_*.md
+skill-adaptor/adapters/**/PAPER_*.md
+skill-adaptor/adapters/claw_eval_adapter/README.md
+skill-adaptor/adapters/**/PROTOCOL.md
+
 SkillAdaptor_artifacts/
 SkillAdaptor_results/
 **/SkillAdaptor_artifacts/
